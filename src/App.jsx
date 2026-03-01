@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, query, orderBy } from "firebase/firestore";
-import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut } from "firebase/auth";
+import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile, onAuthStateChanged, signOut } from "firebase/auth";
 
 const firebaseConfig = {
   apiKey: "AIzaSyCF8-fy294bODgClSIsNME1rAtuw71JCHA",
@@ -16,7 +16,6 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
-const googleProvider = new GoogleAuthProvider();
 
 const CATEGORIES = ["Breakfast", "Healthy Lunch", "Healthy Dinner", "Date Night", "Sunday Specials", "Snacks", "Sweet Treats", "Work Lunches"];
 
@@ -81,81 +80,162 @@ function getWeekDates(offset = 0) {
 }
 
 // ── LOGIN SCREEN ──
-function LoginScreen({ onLogin, loading }) {
+function LoginScreen() {
+  const [mode, setMode] = useState("login"); // login | signup
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const handleGoogleLogin = async () => {
+  const handleSubmit = async () => {
+    if (!email.trim() || !password.trim()) {
+      setError("Please enter your email and password.");
+      return;
+    }
+    if (mode === "signup" && !name.trim()) {
+      setError("Please enter your name.");
+      return;
+    }
+    if (password.length < 6) {
+      setError("Password must be at least 6 characters.");
+      return;
+    }
+    setLoading(true);
+    setError("");
     try {
-      setError("");
-      await signInWithPopup(auth, googleProvider);
+      if (mode === "signup") {
+        const cred = await createUserWithEmailAndPassword(auth, email, password);
+        await updateProfile(cred.user, { displayName: name.trim() });
+      } else {
+        await signInWithEmailAndPassword(auth, email, password);
+      }
     } catch (e) {
-      if (e.code === "auth/popup-closed-by-user") return;
-      setError("Sign-in failed. Please try again.");
+      if (e.code === "auth/user-not-found" || e.code === "auth/invalid-credential") {
+        setError("No account found with that email. Sign up instead?");
+      } else if (e.code === "auth/wrong-password") {
+        setError("Incorrect password. Please try again.");
+      } else if (e.code === "auth/email-already-in-use") {
+        setError("An account with this email already exists. Try logging in.");
+      } else if (e.code === "auth/invalid-email") {
+        setError("Please enter a valid email address.");
+      } else {
+        setError(e.message);
+      }
       console.error("Auth error:", e);
     }
+    setLoading(false);
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter") handleSubmit();
   };
 
   return (
     <div style={{
       minHeight: "100vh",
       background: "linear-gradient(145deg, #FDF6EC 0%, #FFF9F0 40%, #F5EDE3 100%)",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      fontFamily: "'DM Sans', 'Segoe UI', sans-serif",
-      padding: 24,
+      display: "flex", alignItems: "center", justifyContent: "center",
+      fontFamily: "'DM Sans', 'Segoe UI', sans-serif", padding: 24,
     }}>
       <div style={{
-        background: "#FFFDF8",
-        borderRadius: 24,
-        padding: "48px 40px",
-        maxWidth: 400,
-        width: "100%",
-        textAlign: "center",
-        border: "2px solid #EDE5DA",
-        boxShadow: "0 8px 32px rgba(61,46,31,0.08)",
+        background: "#FFFDF8", borderRadius: 24, padding: "48px 40px",
+        maxWidth: 400, width: "100%", textAlign: "center",
+        border: "2px solid #EDE5DA", boxShadow: "0 8px 32px rgba(61,46,31,0.08)",
       }}>
         <div style={{ fontSize: 56, marginBottom: 16 }}>{"\ud83d\udcd6"}</div>
-        <h1 style={{
-          fontSize: 32, fontWeight: 800, color: "#3D2E1F",
-          margin: "0 0 8px", letterSpacing: "-0.5px",
-        }}>Recipe Box</h1>
-        <p style={{
-          fontSize: 16, color: "#A08060", margin: "0 0 32px", lineHeight: 1.5,
-        }}>Your personal recipe collection, meal planner, and grocery list.</p>
+        <h1 style={{ fontSize: 32, fontWeight: 800, color: "#3D2E1F", margin: "0 0 8px", letterSpacing: "-0.5px" }}>
+          Recipe Box
+        </h1>
+        <p style={{ fontSize: 16, color: "#A08060", margin: "0 0 28px", lineHeight: 1.5 }}>
+          {mode === "signup" ? "Create your account to get started." : "Sign in to your personal kitchen."}
+        </p>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 12, textAlign: "left" }}>
+          {mode === "signup" && (
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 600, color: "#6B5744", textTransform: "uppercase", letterSpacing: "0.5px" }}>Your Name</label>
+              <input
+                style={{
+                  width: "100%", boxSizing: "border-box", marginTop: 4,
+                  padding: "12px 14px", border: "2px solid #E8DDD0", borderRadius: 10,
+                  fontSize: 15, background: "#FFFDF8", color: "#3D2E1F", outline: "none", fontFamily: "inherit",
+                }}
+                placeholder="Liam"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                onKeyDown={handleKeyDown}
+              />
+            </div>
+          )}
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: "#6B5744", textTransform: "uppercase", letterSpacing: "0.5px" }}>Email</label>
+            <input
+              style={{
+                width: "100%", boxSizing: "border-box", marginTop: 4,
+                padding: "12px 14px", border: "2px solid #E8DDD0", borderRadius: 10,
+                fontSize: 15, background: "#FFFDF8", color: "#3D2E1F", outline: "none", fontFamily: "inherit",
+              }}
+              type="email"
+              placeholder="you@email.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              onKeyDown={handleKeyDown}
+            />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: "#6B5744", textTransform: "uppercase", letterSpacing: "0.5px" }}>Password</label>
+            <input
+              style={{
+                width: "100%", boxSizing: "border-box", marginTop: 4,
+                padding: "12px 14px", border: "2px solid #E8DDD0", borderRadius: 10,
+                fontSize: 15, background: "#FFFDF8", color: "#3D2E1F", outline: "none", fontFamily: "inherit",
+              }}
+              type="password"
+              placeholder={mode === "signup" ? "At least 6 characters" : "Your password"}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              onKeyDown={handleKeyDown}
+            />
+          </div>
+        </div>
 
         <button
-          onClick={handleGoogleLogin}
+          onClick={handleSubmit}
           disabled={loading}
           style={{
-            display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
-            width: "100%", padding: "14px 24px",
-            background: "#3D2E1F", color: "#FDF6EC",
+            width: "100%", padding: "14px 24px", marginTop: 20,
+            background: "#C75B2A", color: "#fff",
             border: "none", borderRadius: 14,
             fontSize: 16, fontWeight: 600,
             cursor: loading ? "wait" : "pointer",
             fontFamily: "inherit",
-            boxShadow: "0 2px 8px rgba(61,46,31,0.2)",
-            transition: "transform 0.15s",
+            boxShadow: "0 2px 8px rgba(199,91,42,0.3)",
             opacity: loading ? 0.7 : 1,
           }}
         >
-          <svg width="20" height="20" viewBox="0 0 48 48">
-            <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
-            <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
-            <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
-            <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
-          </svg>
-          {loading ? "Signing in..." : "Sign in with Google"}
+          {loading ? "Please wait..." : mode === "signup" ? "Create Account" : "Sign In"}
         </button>
 
         {error && (
-          <p style={{ color: "#C75B2A", fontSize: 14, marginTop: 16 }}>{error}</p>
+          <p style={{ color: "#C75B2A", fontSize: 14, marginTop: 16, lineHeight: 1.4 }}>{error}</p>
         )}
 
-        <p style={{
-          fontSize: 12, color: "#C0A888", marginTop: 24, lineHeight: 1.5,
-        }}>Your recipes and meal plans are private to your account.</p>
+        <p style={{ fontSize: 14, color: "#A08060", marginTop: 20 }}>
+          {mode === "login" ? (
+            <>Don't have an account?{" "}
+              <span onClick={() => { setMode("signup"); setError(""); }} style={{ color: "#C75B2A", fontWeight: 600, cursor: "pointer" }}>Sign up</span>
+            </>
+          ) : (
+            <>Already have an account?{" "}
+              <span onClick={() => { setMode("login"); setError(""); }} style={{ color: "#C75B2A", fontWeight: 600, cursor: "pointer" }}>Sign in</span>
+            </>
+          )}
+        </p>
+
+        <p style={{ fontSize: 12, color: "#C0A888", marginTop: 16, lineHeight: 1.5 }}>
+          Your recipes and meal plans are private to your account.
+        </p>
       </div>
     </div>
   );
@@ -635,10 +715,19 @@ export default function RecipeTracker() {
         </button>
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        {user.photoURL && (
-          <img src={user.photoURL} alt="" style={{ width: 32, height: 32, borderRadius: "50%", border: "2px solid #EDE5DA" }} referrerPolicy="no-referrer" />
-        )}
-        <span style={{ fontSize: 13, color: "#6B5744", fontWeight: 500 }}>{user.displayName?.split(" ")[0]}</span>
+        <div style={{
+          width: 32, height: 32, borderRadius: "50%", border: "2px solid #EDE5DA",
+          background: "#F0E6D8", display: "flex", alignItems: "center", justifyContent: "center",
+          fontSize: 14, fontWeight: 700, color: "#6B5744",
+          overflow: "hidden",
+        }}>
+          {user.photoURL ? (
+            <img src={user.photoURL} alt="" style={{ width: 32, height: 32 }} referrerPolicy="no-referrer" />
+          ) : (
+            (user.displayName || user.email || "?")[0].toUpperCase()
+          )}
+        </div>
+        <span style={{ fontSize: 13, color: "#6B5744", fontWeight: 500 }}>{user.displayName?.split(" ")[0] || user.email?.split("@")[0]}</span>
         <button
           onClick={handleSignOut}
           style={{
@@ -841,7 +930,7 @@ export default function RecipeTracker() {
       <header style={styles.header}>
         <div style={styles.headerLeft}>
           <h1 style={styles.logo}>
-            <span style={styles.logoIcon}>{"\ud83d\udcd6"}</span> {user.displayName?.split(" ")[0]}'s Kitchen
+            <span style={styles.logoIcon}>{"\ud83d\udcd6"}</span> {(user.displayName?.split(" ")[0] || user.email?.split("@")[0])}'s Kitchen
           </h1>
           <p style={styles.subtitle}>{recipes.length} recipe{recipes.length !== 1 ? "s" : ""} saved</p>
         </div>
