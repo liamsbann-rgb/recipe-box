@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, query, orderBy } from "firebase/firestore";
+import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut } from "firebase/auth";
 
 const firebaseConfig = {
   apiKey: "AIzaSyCF8-fy294bODgClSIsNME1rAtuw71JCHA",
@@ -14,7 +15,8 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
-const recipesRef = collection(db, "recipes");
+const auth = getAuth(app);
+const googleProvider = new GoogleAuthProvider();
 
 const CATEGORIES = ["Breakfast", "Healthy Lunch", "Healthy Dinner", "Date Night", "Sunday Specials", "Snacks", "Sweet Treats", "Work Lunches"];
 
@@ -31,66 +33,6 @@ const EMPTY_RECIPE = {
   image: "",
 };
 
-const SAMPLE_RECIPES = [
-  {
-    id: "sample-1",
-    title: "Classic Pasta Aglio e Olio",
-    category: "Date Night",
-    prepTime: "5 min",
-    cookTime: "15 min",
-    servings: "4",
-    ingredients: [
-      "400g spaghetti",
-      "6 cloves garlic, thinly sliced",
-      "\u00bd cup extra virgin olive oil",
-      "1 tsp red pepper flakes",
-      "\u00bd cup fresh parsley, chopped",
-      "Salt & freshly ground black pepper",
-      "Parmigiano-Reggiano for serving",
-    ],
-    steps: [
-      "Bring a large pot of salted water to a boil and cook spaghetti until al dente.",
-      "While pasta cooks, heat olive oil in a large skillet over medium-low heat. Add garlic and cook until golden (not brown), about 2 minutes.",
-      "Add red pepper flakes and remove from heat.",
-      "Reserve 1 cup pasta water, then drain pasta and add to the skillet.",
-      "Toss over low heat, adding pasta water a splash at a time until silky.",
-      "Finish with parsley, salt, pepper, and a generous shower of Parmigiano.",
-    ],
-    notes: "The secret is patience with the garlic \u2014 golden, never burnt.",
-    rating: 5,
-    image: "\ud83c\udf5d",
-    createdAt: Date.now(),
-  },
-  {
-    id: "sample-2",
-    title: "Honey Sriracha Glazed Salmon",
-    category: "Healthy Dinner",
-    prepTime: "10 min",
-    cookTime: "12 min",
-    servings: "2",
-    ingredients: [
-      "2 salmon fillets (6oz each)",
-      "2 tbsp honey",
-      "1 tbsp sriracha",
-      "1 tbsp soy sauce",
-      "1 clove garlic, minced",
-      "1 tsp sesame oil",
-      "Sesame seeds & green onion for garnish",
-    ],
-    steps: [
-      "Preheat oven to 400\u00b0F (200\u00b0C). Line a baking sheet with parchment.",
-      "Whisk honey, sriracha, soy sauce, garlic, and sesame oil together.",
-      "Place salmon skin-side down on baking sheet. Brush generously with glaze.",
-      "Bake 10\u201312 minutes until salmon flakes easily with a fork.",
-      "Garnish with sesame seeds and sliced green onion.",
-    ],
-    notes: "Works great on the grill too. Double the glaze for extra dipping.",
-    rating: 4,
-    image: "\ud83d\udc1f",
-    createdAt: Date.now() - 100000,
-  },
-];
-
 const FOOD_EMOJIS = ["\ud83c\udf5d", "\ud83e\udd57", "\ud83c\udf5c", "\ud83e\udd58", "\ud83c\udf72", "\ud83c\udf5b", "\ud83e\udd67", "\ud83c\udf70", "\ud83e\uddc1", "\ud83e\udd5e", "\ud83c\udf73", "\ud83e\udd6a", "\ud83c\udf2e", "\ud83c\udf54", "\ud83c\udf55", "\ud83d\udc1f", "\ud83c\udf57", "\ud83e\udd69", "\ud83c\udf64", "\ud83e\udd51", "\ud83e\udED5", "\u2615", "\ud83e\uddc7", "\ud83e\udd50", "\ud83c\udf71"];
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
@@ -99,14 +41,11 @@ const MULTIPLIERS = [0.5, 1, 1.5, 2, 3];
 
 function scaleIngredient(text, multiplier) {
   if (multiplier === 1) return text;
-  // Match leading numbers like "2", "1/2", "½", "1.5", or unicode fractions
   const fractionMap = { "\u00bd": 0.5, "\u2153": 0.33, "\u2154": 0.67, "\u00bc": 0.25, "\u00be": 0.75 };
-  // Replace unicode fractions with decimals first
   let processed = text;
   for (const [frac, val] of Object.entries(fractionMap)) {
     processed = processed.replace(frac, String(val));
   }
-  // Match a number at the start (integer, decimal, or fraction like 1/2)
   const match = processed.match(/^(\d+\/\d+|\d+\.?\d*)\s*/);
   if (!match) return text;
   let num;
@@ -117,7 +56,6 @@ function scaleIngredient(text, multiplier) {
     num = parseFloat(match[1]);
   }
   const scaled = num * multiplier;
-  // Format nicely: whole numbers stay whole, others get 1 decimal
   const formatted = scaled % 1 === 0 ? String(scaled) : scaled.toFixed(1).replace(/\.0$/, "");
   return processed.replace(match[0], formatted + " ");
 }
@@ -140,6 +78,87 @@ function getWeekDates(offset = 0) {
     d.setDate(monday.getDate() + i);
     return d;
   });
+}
+
+// ── LOGIN SCREEN ──
+function LoginScreen({ onLogin, loading }) {
+  const [error, setError] = useState("");
+
+  const handleGoogleLogin = async () => {
+    try {
+      setError("");
+      await signInWithPopup(auth, googleProvider);
+    } catch (e) {
+      if (e.code === "auth/popup-closed-by-user") return;
+      setError("Sign-in failed. Please try again.");
+      console.error("Auth error:", e);
+    }
+  };
+
+  return (
+    <div style={{
+      minHeight: "100vh",
+      background: "linear-gradient(145deg, #FDF6EC 0%, #FFF9F0 40%, #F5EDE3 100%)",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      fontFamily: "'DM Sans', 'Segoe UI', sans-serif",
+      padding: 24,
+    }}>
+      <div style={{
+        background: "#FFFDF8",
+        borderRadius: 24,
+        padding: "48px 40px",
+        maxWidth: 400,
+        width: "100%",
+        textAlign: "center",
+        border: "2px solid #EDE5DA",
+        boxShadow: "0 8px 32px rgba(61,46,31,0.08)",
+      }}>
+        <div style={{ fontSize: 56, marginBottom: 16 }}>{"\ud83d\udcd6"}</div>
+        <h1 style={{
+          fontSize: 32, fontWeight: 800, color: "#3D2E1F",
+          margin: "0 0 8px", letterSpacing: "-0.5px",
+        }}>Recipe Box</h1>
+        <p style={{
+          fontSize: 16, color: "#A08060", margin: "0 0 32px", lineHeight: 1.5,
+        }}>Your personal recipe collection, meal planner, and grocery list.</p>
+
+        <button
+          onClick={handleGoogleLogin}
+          disabled={loading}
+          style={{
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
+            width: "100%", padding: "14px 24px",
+            background: "#3D2E1F", color: "#FDF6EC",
+            border: "none", borderRadius: 14,
+            fontSize: 16, fontWeight: 600,
+            cursor: loading ? "wait" : "pointer",
+            fontFamily: "inherit",
+            boxShadow: "0 2px 8px rgba(61,46,31,0.2)",
+            transition: "transform 0.15s",
+            opacity: loading ? 0.7 : 1,
+          }}
+        >
+          <svg width="20" height="20" viewBox="0 0 48 48">
+            <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+            <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+            <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+            <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+          </svg>
+          {loading ? "Signing in..." : "Sign in with Google"}
+        </button>
+
+        {error && (
+          <p style={{ color: "#C75B2A", fontSize: 14, marginTop: 16 }}>{error}</p>
+        )}
+
+        <p style={{
+          fontSize: 12, color: "#C0A888", marginTop: 24, lineHeight: 1.5,
+        }}>Your recipes and meal plans are private to your account.</p>
+      </div>
+    </div>
+  );
 }
 
 // ── MEAL PLANNER COMPONENT ──
@@ -196,7 +215,6 @@ function MealPlanner({ recipes, mealPlan, saveMealPlan }) {
     setCheckedItems({});
   };
 
-  // Build grocery list from assigned meals with multiplier scaling
   const groceryItems = (() => {
     const items = [];
     const seen = new Set();
@@ -237,7 +255,6 @@ function MealPlanner({ recipes, mealPlan, saveMealPlan }) {
 
   return (
     <div style={{ maxWidth: 1100, margin: "0 auto" }}>
-      {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
         <div>
           <h2 style={{ margin: 0, fontSize: 24, fontWeight: 800 }}>{"\ud83d\udcc5"} Meal Planner</h2>
@@ -253,14 +270,7 @@ function MealPlanner({ recipes, mealPlan, saveMealPlan }) {
         </div>
       </div>
 
-      {/* Calendar Grid */}
-      <div style={{
-        display: "grid",
-        gridTemplateColumns: "repeat(7, 1fr)",
-        gap: 8,
-        marginBottom: 32,
-        overflowX: "auto",
-      }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8, marginBottom: 32, overflowX: "auto" }}>
         {DAYS.map((day, di) => {
           const date = weekDates[di];
           const isToday = new Date().toDateString() === date.toDateString();
@@ -269,15 +279,9 @@ function MealPlanner({ recipes, mealPlan, saveMealPlan }) {
               background: isToday ? "#FFF5EB" : "#FFFDF8",
               borderRadius: 14,
               border: isToday ? "2px solid #C75B2A" : "2px solid #EDE5DA",
-              padding: 10,
-              minWidth: 130,
+              padding: 10, minWidth: 130,
             }}>
-              <div style={{
-                textAlign: "center",
-                marginBottom: 8,
-                paddingBottom: 8,
-                borderBottom: "1px solid #EDE5DA",
-              }}>
+              <div style={{ textAlign: "center", marginBottom: 8, paddingBottom: 8, borderBottom: "1px solid #EDE5DA" }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: isToday ? "#C75B2A" : "#A08060", textTransform: "uppercase", letterSpacing: "0.5px" }}>{day.slice(0, 3)}</div>
                 <div style={{ fontSize: 18, fontWeight: 700, color: isToday ? "#C75B2A" : "#3D2E1F" }}>{date.getDate()}</div>
               </div>
@@ -288,14 +292,8 @@ function MealPlanner({ recipes, mealPlan, saveMealPlan }) {
                     <div style={{ fontSize: 10, fontWeight: 600, color: "#A08060", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 3 }}>{slot}</div>
                     {meal ? (
                       <div style={{
-                        background: "#F0E6D8",
-                        borderRadius: 8,
-                        padding: "6px 8px",
-                        fontSize: 12,
-                        fontWeight: 600,
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 4,
+                        background: "#F0E6D8", borderRadius: 8, padding: "6px 8px",
+                        fontSize: 12, fontWeight: 600, display: "flex", alignItems: "center", gap: 4,
                       }}>
                         <span>{meal.image}</span>
                         <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{meal.title}</span>
@@ -304,38 +302,23 @@ function MealPlanner({ recipes, mealPlan, saveMealPlan }) {
                           title="Click to change serving multiplier"
                           style={{
                             background: (meal.multiplier || 1) !== 1 ? "#C75B2A" : "#BFB09E",
-                            color: "#fff",
-                            border: "none",
-                            borderRadius: 4,
-                            padding: "1px 4px",
-                            fontSize: 9,
-                            fontWeight: 700,
-                            cursor: "pointer",
-                            lineHeight: 1.4,
-                            flexShrink: 0,
+                            color: "#fff", border: "none", borderRadius: 4,
+                            padding: "1px 4px", fontSize: 9, fontWeight: 700,
+                            cursor: "pointer", lineHeight: 1.4, flexShrink: 0,
                           }}
                         >{(meal.multiplier || 1)}x</button>
                         <button
                           onClick={() => removeMeal(day, slot)}
-                          style={{
-                            background: "none", border: "none", color: "#C75B2A",
-                            fontSize: 14, cursor: "pointer", padding: 0, lineHeight: 1,
-                          }}
+                          style={{ background: "none", border: "none", color: "#C75B2A", fontSize: 14, cursor: "pointer", padding: 0, lineHeight: 1 }}
                         >{"\u00d7"}</button>
                       </div>
                     ) : (
                       <button
                         onClick={() => { setPicker({ day, slot }); setSearchTerm(""); }}
                         style={{
-                          width: "100%",
-                          background: "transparent",
-                          border: "1px dashed #D4C8BA",
-                          borderRadius: 8,
-                          padding: "6px",
-                          fontSize: 16,
-                          color: "#D4C8BA",
-                          cursor: "pointer",
-                          fontFamily: "inherit",
+                          width: "100%", background: "transparent", border: "1px dashed #D4C8BA",
+                          borderRadius: 8, padding: "6px", fontSize: 16, color: "#D4C8BA",
+                          cursor: "pointer", fontFamily: "inherit",
                         }}
                       >+</button>
                     )}
@@ -347,7 +330,6 @@ function MealPlanner({ recipes, mealPlan, saveMealPlan }) {
         })}
       </div>
 
-      {/* Recipe Picker Modal */}
       {picker && (
         <div style={{
           position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
@@ -381,8 +363,7 @@ function MealPlanner({ recipes, mealPlan, saveMealPlan }) {
                     style={{
                       display: "flex", alignItems: "center", gap: 10,
                       padding: "10px 12px", borderRadius: 10, cursor: "pointer",
-                      border: "1px solid #EDE5DA", marginBottom: 6,
-                      transition: "background 0.1s",
+                      border: "1px solid #EDE5DA", marginBottom: 6, transition: "background 0.1s",
                     }}
                     onMouseEnter={(e) => e.currentTarget.style.background = "#F8F0E4"}
                     onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
@@ -396,21 +377,12 @@ function MealPlanner({ recipes, mealPlan, saveMealPlan }) {
                 ))
               )}
             </div>
-            <button
-              onClick={() => setPicker(null)}
-              style={{ ...styles.filterChip, marginTop: 12, alignSelf: "center" }}
-            >Cancel</button>
+            <button onClick={() => setPicker(null)} style={{ ...styles.filterChip, marginTop: 12, alignSelf: "center" }}>Cancel</button>
           </div>
         </div>
       )}
 
-      {/* Grocery List */}
-      <div style={{
-        background: "#FFFDF8",
-        borderRadius: 16,
-        border: "2px solid #EDE5DA",
-        padding: 24,
-      }}>
+      <div style={{ background: "#FFFDF8", borderRadius: 16, border: "2px solid #EDE5DA", padding: 24 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
           <h3 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>{"\ud83d\uded2"} Grocery List</h3>
           {groceryItems.length > 0 && (
@@ -432,8 +404,7 @@ function MealPlanner({ recipes, mealPlan, saveMealPlan }) {
                 style={{
                   display: "flex", alignItems: "center", gap: 10,
                   padding: "8px 12px", borderRadius: 8, cursor: "pointer",
-                  background: checkedItems[i] ? "#F0E6D8" : "transparent",
-                  transition: "background 0.1s",
+                  background: checkedItems[i] ? "#F0E6D8" : "transparent", transition: "background 0.1s",
                 }}
               >
                 <span style={{
@@ -442,16 +413,12 @@ function MealPlanner({ recipes, mealPlan, saveMealPlan }) {
                   background: checkedItems[i] ? "#C75B2A" : "transparent",
                   display: "flex", alignItems: "center", justifyContent: "center",
                   color: "#fff", fontSize: 12, fontWeight: 700, flexShrink: 0,
-                }}>
-                  {checkedItems[i] ? "\u2713" : ""}
-                </span>
+                }}>{checkedItems[i] ? "\u2713" : ""}</span>
                 <span style={{
                   flex: 1, fontSize: 15,
                   textDecoration: checkedItems[i] ? "line-through" : "none",
                   color: checkedItems[i] ? "#A08060" : "#3D2E1F",
-                }}>
-                  {item.text}
-                </span>
+                }}>{item.text}</span>
                 <span style={{ fontSize: 11, color: "#C0A888", flexShrink: 0 }}>{item.from}</span>
               </div>
             ))}
@@ -464,6 +431,8 @@ function MealPlanner({ recipes, mealPlan, saveMealPlan }) {
 
 // ── MAIN APP ──
 export default function RecipeTracker() {
+  const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [recipes, setRecipes] = useState([]);
   const [tab, setTab] = useState("recipes");
   const [view, setView] = useState("grid");
@@ -477,56 +446,86 @@ export default function RecipeTracker() {
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [mealPlan, setMealPlan] = useState({});
 
-  // Real-time sync - recipes
+  // Listen to auth state
   useEffect(() => {
-    const q = query(recipesRef, orderBy("createdAt", "desc"));
+    const unsubscribe = onAuthStateChanged(auth, (u) => {
+      setUser(u);
+      setAuthLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Per-user Firestore paths
+  const userRecipesRef = user ? collection(db, "users", user.uid, "recipes") : null;
+  const userMealPlanRef = user ? doc(db, "users", user.uid, "mealplans", "current") : null;
+
+  // Real-time sync - recipes (per user)
+  useEffect(() => {
+    if (!user) { setRecipes([]); setLoaded(false); return; }
+    const q = query(collection(db, "users", user.uid, "recipes"), orderBy("createdAt", "desc"));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
       setRecipes(data);
       setLoaded(true);
     }, (error) => {
       console.error("Firestore error:", error);
-      setRecipes(SAMPLE_RECIPES);
+      setRecipes([]);
       setLoaded(true);
     });
     return () => unsubscribe();
-  }, []);
+  }, [user]);
 
-  // Real-time sync - meal plan
+  // Real-time sync - meal plan (per user)
   useEffect(() => {
-    const unsubscribe = onSnapshot(doc(db, "mealplans", "shared"), (snapshot) => {
+    if (!user) { setMealPlan({}); return; }
+    const unsubscribe = onSnapshot(doc(db, "users", user.uid, "mealplans", "current"), (snapshot) => {
       if (snapshot.exists()) {
         setMealPlan(snapshot.data().plan || {});
+      } else {
+        setMealPlan({});
       }
     });
     return () => unsubscribe();
-  }, []);
+  }, [user]);
 
   const saveRecipe = useCallback(async (recipe) => {
+    if (!user) return;
     try {
       const { id, ...data } = recipe;
-      await setDoc(doc(db, "recipes", id), { ...data, id });
+      await setDoc(doc(db, "users", user.uid, "recipes", id), { ...data, id });
     } catch (e) {
       console.error("Save error:", e);
     }
-  }, []);
+  }, [user]);
 
   const removeRecipe = useCallback(async (id) => {
+    if (!user) return;
     try {
-      await deleteDoc(doc(db, "recipes", id));
+      await deleteDoc(doc(db, "users", user.uid, "recipes", id));
     } catch (e) {
       console.error("Delete error:", e);
     }
-  }, []);
+  }, [user]);
 
   const saveMealPlan = useCallback(async (plan) => {
+    if (!user) return;
     setMealPlan(plan);
     try {
-      await setDoc(doc(db, "mealplans", "shared"), { plan });
+      await setDoc(doc(db, "users", user.uid, "mealplans", "current"), { plan });
     } catch (e) {
       console.error("Meal plan save error:", e);
     }
-  }, []);
+  }, [user]);
+
+  const handleSignOut = async () => {
+    try {
+      await signOut(auth);
+      setTab("recipes");
+      setView("grid");
+    } catch (e) {
+      console.error("Sign out error:", e);
+    }
+  };
 
   const filteredRecipes = recipes.filter((r) => {
     const matchesSearch =
@@ -595,6 +594,21 @@ export default function RecipeTracker() {
     if (selectedRecipe?.id === recipe.id) setSelectedRecipe({ ...recipe, rating });
   };
 
+  // ── AUTH LOADING ──
+  if (authLoading) {
+    return (
+      <div style={styles.loadingWrap}>
+        <div style={styles.loadingText}>Loading...</div>
+      </div>
+    );
+  }
+
+  // ── LOGIN ──
+  if (!user) {
+    return <LoginScreen />;
+  }
+
+  // ── DATA LOADING ──
   if (!loaded) {
     return (
       <div style={styles.loadingWrap}>
@@ -605,19 +619,35 @@ export default function RecipeTracker() {
 
   // ── TAB NAV ──
   const TabNav = () => (
-    <div style={styles.tabBar}>
-      <button
-        style={{ ...styles.tabBtn, ...(tab === "recipes" ? styles.tabBtnActive : {}) }}
-        onClick={() => { setTab("recipes"); setView("grid"); }}
-      >
-        {"\ud83d\udcd6"} Recipes
-      </button>
-      <button
-        style={{ ...styles.tabBtn, ...(tab === "planner" ? styles.tabBtnActive : {}) }}
-        onClick={() => setTab("planner")}
-      >
-        {"\ud83d\udcc5"} Meal Planner
-      </button>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24, flexWrap: "wrap", gap: 12 }}>
+      <div style={styles.tabBar}>
+        <button
+          style={{ ...styles.tabBtn, ...(tab === "recipes" ? styles.tabBtnActive : {}) }}
+          onClick={() => { setTab("recipes"); setView("grid"); }}
+        >
+          {"\ud83d\udcd6"} Recipes
+        </button>
+        <button
+          style={{ ...styles.tabBtn, ...(tab === "planner" ? styles.tabBtnActive : {}) }}
+          onClick={() => setTab("planner")}
+        >
+          {"\ud83d\udcc5"} Meal Planner
+        </button>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        {user.photoURL && (
+          <img src={user.photoURL} alt="" style={{ width: 32, height: 32, borderRadius: "50%", border: "2px solid #EDE5DA" }} referrerPolicy="no-referrer" />
+        )}
+        <span style={{ fontSize: 13, color: "#6B5744", fontWeight: 500 }}>{user.displayName?.split(" ")[0]}</span>
+        <button
+          onClick={handleSignOut}
+          style={{
+            background: "none", border: "1px solid #E8DDD0", borderRadius: 8,
+            padding: "6px 12px", fontSize: 12, fontWeight: 600,
+            color: "#A08060", cursor: "pointer", fontFamily: "inherit",
+          }}
+        >Sign out</button>
+      </div>
     </div>
   );
 
@@ -626,11 +656,7 @@ export default function RecipeTracker() {
     return (
       <div style={styles.app}>
         <TabNav />
-        <MealPlanner
-          recipes={recipes}
-          mealPlan={mealPlan}
-          saveMealPlan={saveMealPlan}
-        />
+        <MealPlanner recipes={recipes} mealPlan={mealPlan} saveMealPlan={saveMealPlan} />
       </div>
     );
   }
@@ -815,7 +841,7 @@ export default function RecipeTracker() {
       <header style={styles.header}>
         <div style={styles.headerLeft}>
           <h1 style={styles.logo}>
-            <span style={styles.logoIcon}>{"\ud83d\udcd6"}</span> The Kitchen
+            <span style={styles.logoIcon}>{"\ud83d\udcd6"}</span> {user.displayName?.split(" ")[0]}'s Kitchen
           </h1>
           <p style={styles.subtitle}>{recipes.length} recipe{recipes.length !== 1 ? "s" : ""} saved</p>
         </div>
@@ -886,9 +912,8 @@ const styles = {
   loadingWrap: { display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", background: "#FDF6EC" },
   loadingText: { fontFamily: "'DM Sans', sans-serif", fontSize: 18, color: "#A08060" },
 
-  // Tabs
   tabBar: {
-    display: "flex", gap: 4, marginBottom: 24,
+    display: "flex", gap: 4,
     background: "#EDE5DA", borderRadius: 14, padding: 4, maxWidth: 320,
   },
   tabBtn: {
@@ -901,7 +926,6 @@ const styles = {
     boxShadow: "0 1px 4px rgba(61,46,31,0.1)",
   },
 
-  // Header
   header: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24, flexWrap: "wrap", gap: 16 },
   headerLeft: {},
   logo: { fontSize: 28, fontWeight: 800, color: "#3D2E1F", margin: 0, letterSpacing: "-0.5px" },
@@ -913,7 +937,6 @@ const styles = {
     boxShadow: "0 2px 8px rgba(199,91,42,0.3)", transition: "transform 0.15s",
   },
 
-  // Toolbar
   toolbar: { marginBottom: 24 },
   searchWrap: { position: "relative", marginBottom: 12 },
   searchIcon: { position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", fontSize: 16 },
@@ -934,7 +957,6 @@ const styles = {
   },
   filterChipActive: { background: "#3D2E1F", color: "#FDF6EC", borderColor: "#3D2E1F" },
 
-  // Grid
   grid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 20 },
   card: {
     background: "#FFFDF8", borderRadius: 16, padding: 20,
@@ -950,12 +972,10 @@ const styles = {
   cardStars: { marginBottom: 8 },
   cardIngredients: { fontSize: 13, color: "#A08060", margin: 0, lineHeight: 1.5 },
 
-  // Empty
   empty: { textAlign: "center", padding: "60px 20px" },
   emptyIcon: { fontSize: 48, display: "block", marginBottom: 12 },
   emptyText: { fontSize: 16, color: "#A08060" },
 
-  // Form
   formContainer: { maxWidth: 640, margin: "0 auto" },
   formHeader: { display: "flex", alignItems: "center", gap: 16, marginBottom: 24 },
   formTitle: { fontSize: 24, fontWeight: 700, margin: 0 },
@@ -1008,7 +1028,6 @@ const styles = {
   },
   emojiOption: { fontSize: 24, padding: 6, cursor: "pointer", textAlign: "center", borderRadius: 8 },
 
-  // Detail
   detailContainer: { maxWidth: 720, margin: "0 auto" },
   detailTop: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 },
   detailActions: { display: "flex", gap: 8, alignItems: "center" },
