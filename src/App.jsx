@@ -1,6 +1,20 @@
 import { useState, useEffect, useCallback } from "react";
+import { initializeApp } from "firebase/app";
+import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, query, orderBy } from "firebase/firestore";
 
-const STORAGE_KEY = "recipes-data";
+const firebaseConfig = {
+  apiKey: "AIzaSyCF8-fy294bODgClSIsNME1rAtuw71JCHA",
+  authDomain: "recipe-box-706db.firebaseapp.com",
+  projectId: "recipe-box-706db",
+  storageBucket: "recipe-box-706db.firebasestorage.app",
+  messagingSenderId: "627005649584",
+  appId: "1:627005649584:web:e08cdc375333525f53c175",
+  measurementId: "G-KZQK6ZZQHP"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+const recipesRef = collection(db, "recipes");
 
 const CATEGORIES = ["Breakfast", "Healthy Lunch", "Healthy Dinner", "Date Night", "Sunday Specials", "Snacks", "Sweet Treats", "Work Lunches"];
 
@@ -91,32 +105,37 @@ export default function RecipeTracker() {
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
 
-  // Load from storage
+  // Real-time sync with Firestore
   useEffect(() => {
-    async function load() {
-      try {
-        const result = await window.storage.get(STORAGE_KEY, true);
-        if (result?.value) {
-          setRecipes(JSON.parse(result.value));
-        } else {
-          // Load samples for first time
-          setRecipes(SAMPLE_RECIPES);
-          await window.storage.set(STORAGE_KEY, JSON.stringify(SAMPLE_RECIPES), true);
-        }
-      } catch {
-        setRecipes(SAMPLE_RECIPES);
-      }
+    const q = query(recipesRef, orderBy("createdAt", "desc"));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      setRecipes(data);
       setLoaded(true);
-    }
-    load();
+    }, (error) => {
+      console.error("Firestore error:", error);
+      setRecipes(SAMPLE_RECIPES);
+      setLoaded(true);
+    });
+    return () => unsubscribe();
   }, []);
 
-  // Save to storage
-  const persist = useCallback(async (data) => {
+  // Save a recipe to Firestore
+  const saveRecipe = useCallback(async (recipe) => {
     try {
-      await window.storage.set(STORAGE_KEY, JSON.stringify(data), true);
+      const { id, ...data } = recipe;
+      await setDoc(doc(db, "recipes", id), { ...data, id });
     } catch (e) {
-      console.error("Storage error:", e);
+      console.error("Save error:", e);
+    }
+  }, []);
+
+  // Delete a recipe from Firestore
+  const removeRecipe = useCallback(async (id) => {
+    try {
+      await deleteDoc(doc(db, "recipes", id));
+    } catch (e) {
+      console.error("Delete error:", e);
     }
   }, []);
 
@@ -129,31 +148,27 @@ export default function RecipeTracker() {
     return matchesSearch && matchesCategory;
   });
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!formData.title.trim()) return;
     const cleaned = {
       ...formData,
       ingredients: formData.ingredients.filter((i) => i.trim()),
       steps: formData.steps.filter((s) => s.trim()),
     };
-    let updated;
     if (editingId) {
-      updated = recipes.map((r) => (r.id === editingId ? { ...cleaned, id: editingId, createdAt: r.createdAt } : r));
+      const existing = recipes.find((r) => r.id === editingId);
+      await saveRecipe({ ...cleaned, id: editingId, createdAt: existing?.createdAt || Date.now() });
     } else {
       const newRecipe = { ...cleaned, id: `r-${Date.now()}`, createdAt: Date.now() };
-      updated = [newRecipe, ...recipes];
+      await saveRecipe(newRecipe);
     }
-    setRecipes(updated);
-    persist(updated);
     setView("grid");
     setEditingId(null);
     setFormData({ ...EMPTY_RECIPE });
   };
 
-  const handleDelete = (id) => {
-    const updated = recipes.filter((r) => r.id !== id);
-    setRecipes(updated);
-    persist(updated);
+  const handleDelete = async (id) => {
+    await removeRecipe(id);
     setView("grid");
     setSelectedRecipe(null);
     setDeleteConfirm(null);
@@ -186,10 +201,8 @@ export default function RecipeTracker() {
     setFormData({ ...formData, [field]: updated });
   };
 
-  const setRating = (recipe, rating) => {
-    const updated = recipes.map((r) => (r.id === recipe.id ? { ...r, rating } : r));
-    setRecipes(updated);
-    persist(updated);
+  const handleRating = (recipe, rating) => {
+    saveRecipe({ ...recipe, rating });
     if (selectedRecipe?.id === recipe.id) setSelectedRecipe({ ...recipe, rating });
   };
 
@@ -376,7 +389,7 @@ export default function RecipeTracker() {
                   <span
                     key={s}
                     style={{ ...styles.star, color: s <= r.rating ? "#E8A838" : "#ddd", cursor: "pointer" }}
-                    onClick={() => setRating(r, s)}
+                    onClick={() => handleRating(r, s)}
                   >
                     ★
                   </span>
