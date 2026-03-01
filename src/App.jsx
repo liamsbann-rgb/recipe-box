@@ -95,6 +95,32 @@ const FOOD_EMOJIS = ["\ud83c\udf5d", "\ud83e\udd57", "\ud83c\udf5c", "\ud83e\udd
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const MEAL_SLOTS = ["Breakfast", "Lunch", "Dinner", "Snack"];
+const MULTIPLIERS = [0.5, 1, 1.5, 2, 3];
+
+function scaleIngredient(text, multiplier) {
+  if (multiplier === 1) return text;
+  // Match leading numbers like "2", "1/2", "½", "1.5", or unicode fractions
+  const fractionMap = { "\u00bd": 0.5, "\u2153": 0.33, "\u2154": 0.67, "\u00bc": 0.25, "\u00be": 0.75 };
+  // Replace unicode fractions with decimals first
+  let processed = text;
+  for (const [frac, val] of Object.entries(fractionMap)) {
+    processed = processed.replace(frac, String(val));
+  }
+  // Match a number at the start (integer, decimal, or fraction like 1/2)
+  const match = processed.match(/^(\d+\/\d+|\d+\.?\d*)\s*/);
+  if (!match) return text;
+  let num;
+  if (match[1].includes("/")) {
+    const [n, d] = match[1].split("/").map(Number);
+    num = n / d;
+  } else {
+    num = parseFloat(match[1]);
+  }
+  const scaled = num * multiplier;
+  // Format nicely: whole numbers stay whole, others get 1 decimal
+  const formatted = scaled % 1 === 0 ? String(scaled) : scaled.toFixed(1).replace(/\.0$/, "");
+  return processed.replace(match[0], formatted + " ");
+}
 
 function getWeekKey(offset = 0) {
   const now = new Date();
@@ -138,10 +164,21 @@ function MealPlanner({ recipes, mealPlan, saveMealPlan }) {
     const updated = { ...mealPlan };
     if (!updated[weekKey]) updated[weekKey] = {};
     if (!updated[weekKey][day]) updated[weekKey][day] = {};
-    updated[weekKey][day][slot] = { id: recipe.id, title: recipe.title, image: recipe.image || "\ud83c\udf7d\ufe0f" };
+    updated[weekKey][day][slot] = { id: recipe.id, title: recipe.title, image: recipe.image || "\ud83c\udf7d\ufe0f", multiplier: 1 };
     saveMealPlan(updated);
     setPicker(null);
     setSearchTerm("");
+  };
+
+  const cycleMultiplier = (day, slot) => {
+    const updated = { ...mealPlan };
+    const meal = updated[weekKey]?.[day]?.[slot];
+    if (!meal) return;
+    const current = meal.multiplier || 1;
+    const idx = MULTIPLIERS.indexOf(current);
+    const next = MULTIPLIERS[(idx + 1) % MULTIPLIERS.length];
+    updated[weekKey][day][slot] = { ...meal, multiplier: next };
+    saveMealPlan(updated);
   };
 
   const removeMeal = (day, slot) => {
@@ -159,7 +196,7 @@ function MealPlanner({ recipes, mealPlan, saveMealPlan }) {
     setCheckedItems({});
   };
 
-  // Build grocery list from assigned meals
+  // Build grocery list from assigned meals with multiplier scaling
   const groceryItems = (() => {
     const items = [];
     const seen = new Set();
@@ -168,12 +205,15 @@ function MealPlanner({ recipes, mealPlan, saveMealPlan }) {
         const meal = plan[day]?.[slot];
         if (meal) {
           const recipe = recipes.find((r) => r.id === meal.id);
+          const mult = meal.multiplier || 1;
           if (recipe?.ingredients) {
             recipe.ingredients.forEach((ing) => {
-              const key = ing.toLowerCase().trim();
-              if (!seen.has(key)) {
+              const key = ing.toLowerCase().trim() + "|" + mult;
+              const baseKey = ing.toLowerCase().trim();
+              if (!seen.has(key) && !seen.has(baseKey)) {
                 seen.add(key);
-                items.push({ text: ing, from: recipe.title });
+                seen.add(baseKey);
+                items.push({ text: scaleIngredient(ing, mult), from: recipe.title, multiplier: mult });
               }
             });
           }
@@ -259,6 +299,22 @@ function MealPlanner({ recipes, mealPlan, saveMealPlan }) {
                       }}>
                         <span>{meal.image}</span>
                         <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{meal.title}</span>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); cycleMultiplier(day, slot); }}
+                          title="Click to change serving multiplier"
+                          style={{
+                            background: (meal.multiplier || 1) !== 1 ? "#C75B2A" : "#BFB09E",
+                            color: "#fff",
+                            border: "none",
+                            borderRadius: 4,
+                            padding: "1px 4px",
+                            fontSize: 9,
+                            fontWeight: 700,
+                            cursor: "pointer",
+                            lineHeight: 1.4,
+                            flexShrink: 0,
+                          }}
+                        >{(meal.multiplier || 1)}x</button>
                         <button
                           onClick={() => removeMeal(day, slot)}
                           style={{
@@ -759,7 +815,7 @@ export default function RecipeTracker() {
       <header style={styles.header}>
         <div style={styles.headerLeft}>
           <h1 style={styles.logo}>
-            <span style={styles.logoIcon}>{"\ud83d\udcd6"}</span> Liam and Abby's Kitchen
+            <span style={styles.logoIcon}>{"\ud83d\udcd6"}</span> Recipe Box
           </h1>
           <p style={styles.subtitle}>{recipes.length} recipe{recipes.length !== 1 ? "s" : ""} saved</p>
         </div>
