@@ -42,9 +42,9 @@ const SAMPLE_RECIPES = [
     ingredients: [
       "400g spaghetti",
       "6 cloves garlic, thinly sliced",
-      "½ cup extra virgin olive oil",
+      "\u00bd cup extra virgin olive oil",
       "1 tsp red pepper flakes",
-      "½ cup fresh parsley, chopped",
+      "\u00bd cup fresh parsley, chopped",
       "Salt & freshly ground black pepper",
       "Parmigiano-Reggiano for serving",
     ],
@@ -56,9 +56,9 @@ const SAMPLE_RECIPES = [
       "Toss over low heat, adding pasta water a splash at a time until silky.",
       "Finish with parsley, salt, pepper, and a generous shower of Parmigiano.",
     ],
-    notes: "The secret is patience with the garlic — golden, never burnt.",
+    notes: "The secret is patience with the garlic \u2014 golden, never burnt.",
     rating: 5,
-    image: "🍝",
+    image: "\ud83c\udf5d",
     createdAt: Date.now(),
   },
   {
@@ -78,24 +78,339 @@ const SAMPLE_RECIPES = [
       "Sesame seeds & green onion for garnish",
     ],
     steps: [
-      "Preheat oven to 400°F (200°C). Line a baking sheet with parchment.",
+      "Preheat oven to 400\u00b0F (200\u00b0C). Line a baking sheet with parchment.",
       "Whisk honey, sriracha, soy sauce, garlic, and sesame oil together.",
       "Place salmon skin-side down on baking sheet. Brush generously with glaze.",
-      "Bake 10–12 minutes until salmon flakes easily with a fork.",
+      "Bake 10\u201312 minutes until salmon flakes easily with a fork.",
       "Garnish with sesame seeds and sliced green onion.",
     ],
     notes: "Works great on the grill too. Double the glaze for extra dipping.",
     rating: 4,
-    image: "🐟",
+    image: "\ud83d\udc1f",
     createdAt: Date.now() - 100000,
   },
 ];
 
-const FOOD_EMOJIS = ["🍝", "🥗", "🍜", "🥘", "🍲", "🍛", "🥧", "🍰", "🧁", "🥞", "🍳", "🥪", "🌮", "🍔", "🍕", "🐟", "🍗", "🥩", "🍤", "🥑", "🫕", "☕", "🧇", "🥐", "🍱"];
+const FOOD_EMOJIS = ["\ud83c\udf5d", "\ud83e\udd57", "\ud83c\udf5c", "\ud83e\udd58", "\ud83c\udf72", "\ud83c\udf5b", "\ud83e\udd67", "\ud83c\udf70", "\ud83e\uddc1", "\ud83e\udd5e", "\ud83c\udf73", "\ud83e\udd6a", "\ud83c\udf2e", "\ud83c\udf54", "\ud83c\udf55", "\ud83d\udc1f", "\ud83c\udf57", "\ud83e\udd69", "\ud83c\udf64", "\ud83e\udd51", "\ud83e\udED5", "\u2615", "\ud83e\uddc7", "\ud83e\udd50", "\ud83c\udf71"];
 
+const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+const MEAL_SLOTS = ["Breakfast", "Lunch", "Dinner", "Snack"];
+
+function getWeekKey(offset = 0) {
+  const now = new Date();
+  const day = now.getDay();
+  const monday = new Date(now);
+  monday.setDate(now.getDate() - ((day + 6) % 7) + offset * 7);
+  return monday.toISOString().split("T")[0];
+}
+
+function getWeekDates(offset = 0) {
+  const now = new Date();
+  const day = now.getDay();
+  const monday = new Date(now);
+  monday.setDate(now.getDate() - ((day + 6) % 7) + offset * 7);
+  return DAYS.map((_, i) => {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    return d;
+  });
+}
+
+// ── MEAL PLANNER COMPONENT ──
+function MealPlanner({ recipes, mealPlan, saveMealPlan }) {
+  const [weekOffset, setWeekOffset] = useState(0);
+  const [picker, setPicker] = useState(null);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [checkedItems, setCheckedItems] = useState({});
+
+  const weekKey = getWeekKey(weekOffset);
+  const weekDates = getWeekDates(weekOffset);
+  const plan = mealPlan[weekKey] || {};
+
+  const weekLabel = () => {
+    const d = weekDates[0];
+    const end = weekDates[6];
+    const fmt = (dt) => dt.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    return `${fmt(d)} \u2013 ${fmt(end)}`;
+  };
+
+  const assignMeal = (day, slot, recipe) => {
+    const updated = { ...mealPlan };
+    if (!updated[weekKey]) updated[weekKey] = {};
+    if (!updated[weekKey][day]) updated[weekKey][day] = {};
+    updated[weekKey][day][slot] = { id: recipe.id, title: recipe.title, image: recipe.image || "\ud83c\udf7d\ufe0f" };
+    saveMealPlan(updated);
+    setPicker(null);
+    setSearchTerm("");
+  };
+
+  const removeMeal = (day, slot) => {
+    const updated = { ...mealPlan };
+    if (updated[weekKey]?.[day]?.[slot]) {
+      delete updated[weekKey][day][slot];
+      saveMealPlan(updated);
+    }
+  };
+
+  const clearWeek = () => {
+    const updated = { ...mealPlan };
+    delete updated[weekKey];
+    saveMealPlan(updated);
+    setCheckedItems({});
+  };
+
+  // Build grocery list from assigned meals
+  const groceryItems = (() => {
+    const items = [];
+    const seen = new Set();
+    DAYS.forEach((day) => {
+      MEAL_SLOTS.forEach((slot) => {
+        const meal = plan[day]?.[slot];
+        if (meal) {
+          const recipe = recipes.find((r) => r.id === meal.id);
+          if (recipe?.ingredients) {
+            recipe.ingredients.forEach((ing) => {
+              const key = ing.toLowerCase().trim();
+              if (!seen.has(key)) {
+                seen.add(key);
+                items.push({ text: ing, from: recipe.title });
+              }
+            });
+          }
+        }
+      });
+    });
+    return items;
+  })();
+
+  const toggleCheck = (idx) => {
+    setCheckedItems((prev) => ({ ...prev, [idx]: !prev[idx] }));
+  };
+
+  const filteredRecipes = recipes.filter((r) =>
+    !searchTerm || r.title.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const assignedCount = DAYS.reduce((acc, day) =>
+    acc + MEAL_SLOTS.reduce((a, slot) => a + (plan[day]?.[slot] ? 1 : 0), 0), 0
+  );
+
+  return (
+    <div style={{ maxWidth: 1100, margin: "0 auto" }}>
+      {/* Header */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: 24, fontWeight: 800 }}>{"\ud83d\udcc5"} Meal Planner</h2>
+          <p style={{ margin: "4px 0 0", fontSize: 14, color: "#A08060" }}>{assignedCount} meal{assignedCount !== 1 ? "s" : ""} planned this week</p>
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <button style={styles.filterChip} onClick={() => { setWeekOffset(weekOffset - 1); setCheckedItems({}); }}>{"\u2190"} Prev</button>
+          <span style={{ fontSize: 15, fontWeight: 600, minWidth: 160, textAlign: "center" }}>{weekLabel()}</span>
+          <button style={styles.filterChip} onClick={() => { setWeekOffset(weekOffset + 1); setCheckedItems({}); }}>Next {"\u2192"}</button>
+          {assignedCount > 0 && (
+            <button style={{ ...styles.filterChip, color: "#C75B2A", borderColor: "#C75B2A" }} onClick={clearWeek}>Clear Week</button>
+          )}
+        </div>
+      </div>
+
+      {/* Calendar Grid */}
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(7, 1fr)",
+        gap: 8,
+        marginBottom: 32,
+        overflowX: "auto",
+      }}>
+        {DAYS.map((day, di) => {
+          const date = weekDates[di];
+          const isToday = new Date().toDateString() === date.toDateString();
+          return (
+            <div key={day} style={{
+              background: isToday ? "#FFF5EB" : "#FFFDF8",
+              borderRadius: 14,
+              border: isToday ? "2px solid #C75B2A" : "2px solid #EDE5DA",
+              padding: 10,
+              minWidth: 130,
+            }}>
+              <div style={{
+                textAlign: "center",
+                marginBottom: 8,
+                paddingBottom: 8,
+                borderBottom: "1px solid #EDE5DA",
+              }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: isToday ? "#C75B2A" : "#A08060", textTransform: "uppercase", letterSpacing: "0.5px" }}>{day.slice(0, 3)}</div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: isToday ? "#C75B2A" : "#3D2E1F" }}>{date.getDate()}</div>
+              </div>
+              {MEAL_SLOTS.map((slot) => {
+                const meal = plan[day]?.[slot];
+                return (
+                  <div key={slot} style={{ marginBottom: 6 }}>
+                    <div style={{ fontSize: 10, fontWeight: 600, color: "#A08060", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 3 }}>{slot}</div>
+                    {meal ? (
+                      <div style={{
+                        background: "#F0E6D8",
+                        borderRadius: 8,
+                        padding: "6px 8px",
+                        fontSize: 12,
+                        fontWeight: 600,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 4,
+                      }}>
+                        <span>{meal.image}</span>
+                        <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{meal.title}</span>
+                        <button
+                          onClick={() => removeMeal(day, slot)}
+                          style={{
+                            background: "none", border: "none", color: "#C75B2A",
+                            fontSize: 14, cursor: "pointer", padding: 0, lineHeight: 1,
+                          }}
+                        >{"\u00d7"}</button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => { setPicker({ day, slot }); setSearchTerm(""); }}
+                        style={{
+                          width: "100%",
+                          background: "transparent",
+                          border: "1px dashed #D4C8BA",
+                          borderRadius: 8,
+                          padding: "6px",
+                          fontSize: 16,
+                          color: "#D4C8BA",
+                          cursor: "pointer",
+                          fontFamily: "inherit",
+                        }}
+                      >+</button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Recipe Picker Modal */}
+      {picker && (
+        <div style={{
+          position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+          background: "rgba(61,46,31,0.4)", display: "flex", alignItems: "center",
+          justifyContent: "center", zIndex: 100,
+        }} onClick={() => setPicker(null)}>
+          <div style={{
+            background: "#FFFDF8", borderRadius: 16, padding: 24,
+            width: "90%", maxWidth: 440, maxHeight: "70vh", display: "flex",
+            flexDirection: "column", boxShadow: "0 12px 40px rgba(61,46,31,0.2)",
+          }} onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ margin: "0 0 4px", fontSize: 18, fontWeight: 700 }}>
+              Add {picker.slot} {"\u2014"} {picker.day}
+            </h3>
+            <p style={{ margin: "0 0 12px", fontSize: 13, color: "#A08060" }}>Pick a recipe from your collection</p>
+            <input
+              style={{ ...styles.input, marginBottom: 12 }}
+              placeholder="Search recipes..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              autoFocus
+            />
+            <div style={{ overflow: "auto", flex: 1 }}>
+              {filteredRecipes.length === 0 ? (
+                <p style={{ textAlign: "center", color: "#A08060", fontSize: 14 }}>No recipes found. Add some recipes first!</p>
+              ) : (
+                filteredRecipes.map((r) => (
+                  <div
+                    key={r.id}
+                    onClick={() => assignMeal(picker.day, picker.slot, r)}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 10,
+                      padding: "10px 12px", borderRadius: 10, cursor: "pointer",
+                      border: "1px solid #EDE5DA", marginBottom: 6,
+                      transition: "background 0.1s",
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = "#F8F0E4"}
+                    onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                  >
+                    <span style={{ fontSize: 24 }}>{r.image || "\ud83c\udf7d\ufe0f"}</span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 14, fontWeight: 600 }}>{r.title}</div>
+                      <div style={{ fontSize: 12, color: "#A08060" }}>{r.category} {r.cookTime ? `\u00b7 ${r.cookTime}` : ""}</div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+            <button
+              onClick={() => setPicker(null)}
+              style={{ ...styles.filterChip, marginTop: 12, alignSelf: "center" }}
+            >Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {/* Grocery List */}
+      <div style={{
+        background: "#FFFDF8",
+        borderRadius: 16,
+        border: "2px solid #EDE5DA",
+        padding: 24,
+      }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <h3 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>{"\ud83d\uded2"} Grocery List</h3>
+          {groceryItems.length > 0 && (
+            <span style={{ fontSize: 13, color: "#A08060" }}>
+              {Object.values(checkedItems).filter(Boolean).length} / {groceryItems.length} items
+            </span>
+          )}
+        </div>
+        {groceryItems.length === 0 ? (
+          <p style={{ color: "#A08060", fontSize: 14, margin: 0 }}>
+            Assign meals to the calendar above and your grocery list will auto-populate here.
+          </p>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            {groceryItems.map((item, i) => (
+              <div
+                key={i}
+                onClick={() => toggleCheck(i)}
+                style={{
+                  display: "flex", alignItems: "center", gap: 10,
+                  padding: "8px 12px", borderRadius: 8, cursor: "pointer",
+                  background: checkedItems[i] ? "#F0E6D8" : "transparent",
+                  transition: "background 0.1s",
+                }}
+              >
+                <span style={{
+                  width: 20, height: 20, borderRadius: 6,
+                  border: checkedItems[i] ? "2px solid #C75B2A" : "2px solid #D4C8BA",
+                  background: checkedItems[i] ? "#C75B2A" : "transparent",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  color: "#fff", fontSize: 12, fontWeight: 700, flexShrink: 0,
+                }}>
+                  {checkedItems[i] ? "\u2713" : ""}
+                </span>
+                <span style={{
+                  flex: 1, fontSize: 15,
+                  textDecoration: checkedItems[i] ? "line-through" : "none",
+                  color: checkedItems[i] ? "#A08060" : "#3D2E1F",
+                }}>
+                  {item.text}
+                </span>
+                <span style={{ fontSize: 11, color: "#C0A888", flexShrink: 0 }}>{item.from}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── MAIN APP ──
 export default function RecipeTracker() {
   const [recipes, setRecipes] = useState([]);
-  const [view, setView] = useState("grid"); // grid | detail | form
+  const [tab, setTab] = useState("recipes");
+  const [view, setView] = useState("grid");
   const [selectedRecipe, setSelectedRecipe] = useState(null);
   const [formData, setFormData] = useState({ ...EMPTY_RECIPE });
   const [editingId, setEditingId] = useState(null);
@@ -104,12 +419,13 @@ export default function RecipeTracker() {
   const [loaded, setLoaded] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [mealPlan, setMealPlan] = useState({});
 
-  // Real-time sync with Firestore
+  // Real-time sync - recipes
   useEffect(() => {
     const q = query(recipesRef, orderBy("createdAt", "desc"));
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      const data = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
       setRecipes(data);
       setLoaded(true);
     }, (error) => {
@@ -120,7 +436,16 @@ export default function RecipeTracker() {
     return () => unsubscribe();
   }, []);
 
-  // Save a recipe to Firestore
+  // Real-time sync - meal plan
+  useEffect(() => {
+    const unsubscribe = onSnapshot(doc(db, "mealplans", "shared"), (snapshot) => {
+      if (snapshot.exists()) {
+        setMealPlan(snapshot.data().plan || {});
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
   const saveRecipe = useCallback(async (recipe) => {
     try {
       const { id, ...data } = recipe;
@@ -130,12 +455,20 @@ export default function RecipeTracker() {
     }
   }, []);
 
-  // Delete a recipe from Firestore
   const removeRecipe = useCallback(async (id) => {
     try {
       await deleteDoc(doc(db, "recipes", id));
     } catch (e) {
       console.error("Delete error:", e);
+    }
+  }, []);
+
+  const saveMealPlan = useCallback(async (plan) => {
+    setMealPlan(plan);
+    try {
+      await setDoc(doc(db, "mealplans", "shared"), { plan });
+    } catch (e) {
+      console.error("Meal plan save error:", e);
     }
   }, []);
 
@@ -214,37 +547,60 @@ export default function RecipeTracker() {
     );
   }
 
+  // ── TAB NAV ──
+  const TabNav = () => (
+    <div style={styles.tabBar}>
+      <button
+        style={{ ...styles.tabBtn, ...(tab === "recipes" ? styles.tabBtnActive : {}) }}
+        onClick={() => { setTab("recipes"); setView("grid"); }}
+      >
+        {"\ud83d\udcd6"} Recipes
+      </button>
+      <button
+        style={{ ...styles.tabBtn, ...(tab === "planner" ? styles.tabBtnActive : {}) }}
+        onClick={() => setTab("planner")}
+      >
+        {"\ud83d\udcc5"} Meal Planner
+      </button>
+    </div>
+  );
+
+  // ── PLANNER TAB ──
+  if (tab === "planner") {
+    return (
+      <div style={styles.app}>
+        <TabNav />
+        <MealPlanner
+          recipes={recipes}
+          mealPlan={mealPlan}
+          saveMealPlan={saveMealPlan}
+        />
+      </div>
+    );
+  }
+
   // ── FORM VIEW ──
   if (view === "form") {
     return (
       <div style={styles.app}>
+        <TabNav />
         <div style={styles.formContainer}>
           <div style={styles.formHeader}>
             <button style={styles.backBtn} onClick={() => { setView("grid"); setEditingId(null); setFormData({ ...EMPTY_RECIPE }); }}>
-              ← Back
+              {"\u2190"} Back
             </button>
             <h2 style={styles.formTitle}>{editingId ? "Edit Recipe" : "New Recipe"}</h2>
           </div>
 
           <div style={styles.formGrid}>
-            {/* Emoji Picker */}
             <div style={styles.emojiSection}>
-              <div
-                style={styles.emojiDisplay}
-                onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-              >
-                {formData.image || "🍽️"}
+              <div style={styles.emojiDisplay} onClick={() => setShowEmojiPicker(!showEmojiPicker)}>
+                {formData.image || "\ud83c\udf7d\ufe0f"}
               </div>
               {showEmojiPicker && (
                 <div style={styles.emojiGrid}>
                   {FOOD_EMOJIS.map((e) => (
-                    <span
-                      key={e}
-                      style={styles.emojiOption}
-                      onClick={() => { setFormData({ ...formData, image: e }); setShowEmojiPicker(false); }}
-                    >
-                      {e}
-                    </span>
+                    <span key={e} style={styles.emojiOption} onClick={() => { setFormData({ ...formData, image: e }); setShowEmojiPicker(false); }}>{e}</span>
                   ))}
                 </div>
               )}
@@ -252,22 +608,13 @@ export default function RecipeTracker() {
 
             <div style={styles.formField}>
               <label style={styles.label}>Recipe Title *</label>
-              <input
-                style={styles.input}
-                value={formData.title}
-                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                placeholder="e.g. Grandma's Sunday Roast"
-              />
+              <input style={styles.input} value={formData.title} onChange={(e) => setFormData({ ...formData, title: e.target.value })} placeholder="e.g. Grandma's Sunday Roast" />
             </div>
 
             <div style={styles.formRow}>
               <div style={styles.formField}>
                 <label style={styles.label}>Category</label>
-                <select
-                  style={styles.select}
-                  value={formData.category}
-                  onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                >
+                <select style={styles.select} value={formData.category} onChange={(e) => setFormData({ ...formData, category: e.target.value })}>
                   {CATEGORIES.map((c) => <option key={c}>{c}</option>)}
                 </select>
               </div>
@@ -288,40 +635,27 @@ export default function RecipeTracker() {
               </div>
             </div>
 
-            {/* Ingredients */}
             <div style={styles.formField}>
               <label style={styles.label}>Ingredients</label>
               {formData.ingredients.map((ing, i) => (
                 <div key={i} style={styles.listRow}>
-                  <input
-                    style={{ ...styles.input, flex: 1 }}
-                    value={ing}
-                    onChange={(e) => updateListItem("ingredients", i, e.target.value)}
-                    placeholder={`Ingredient ${i + 1}`}
-                  />
+                  <input style={{ ...styles.input, flex: 1 }} value={ing} onChange={(e) => updateListItem("ingredients", i, e.target.value)} placeholder={`Ingredient ${i + 1}`} />
                   {formData.ingredients.length > 1 && (
-                    <button style={styles.removeBtn} onClick={() => removeListItem("ingredients", i)}>×</button>
+                    <button style={styles.removeBtn} onClick={() => removeListItem("ingredients", i)}>{"\u00d7"}</button>
                   )}
                 </div>
               ))}
               <button style={styles.addBtn} onClick={() => addListItem("ingredients")}>+ Add Ingredient</button>
             </div>
 
-            {/* Steps */}
             <div style={styles.formField}>
               <label style={styles.label}>Steps</label>
               {formData.steps.map((step, i) => (
                 <div key={i} style={styles.listRow}>
                   <span style={styles.stepNum}>{i + 1}</span>
-                  <textarea
-                    style={{ ...styles.textarea, flex: 1 }}
-                    value={step}
-                    onChange={(e) => updateListItem("steps", i, e.target.value)}
-                    placeholder={`Step ${i + 1}`}
-                    rows={2}
-                  />
+                  <textarea style={{ ...styles.textarea, flex: 1 }} value={step} onChange={(e) => updateListItem("steps", i, e.target.value)} placeholder={`Step ${i + 1}`} rows={2} />
                   {formData.steps.length > 1 && (
-                    <button style={styles.removeBtn} onClick={() => removeListItem("steps", i)}>×</button>
+                    <button style={styles.removeBtn} onClick={() => removeListItem("steps", i)}>{"\u00d7"}</button>
                   )}
                 </div>
               ))}
@@ -330,20 +664,10 @@ export default function RecipeTracker() {
 
             <div style={styles.formField}>
               <label style={styles.label}>Notes</label>
-              <textarea
-                style={styles.textarea}
-                value={formData.notes}
-                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                placeholder="Tips, variations, or stories behind this recipe..."
-                rows={3}
-              />
+              <textarea style={styles.textarea} value={formData.notes} onChange={(e) => setFormData({ ...formData, notes: e.target.value })} placeholder="Tips, variations, or stories behind this recipe..." rows={3} />
             </div>
 
-            <button
-              style={{ ...styles.saveBtn, opacity: formData.title.trim() ? 1 : 0.5 }}
-              onClick={handleSave}
-              disabled={!formData.title.trim()}
-            >
+            <button style={{ ...styles.saveBtn, opacity: formData.title.trim() ? 1 : 0.5 }} onClick={handleSave} disabled={!formData.title.trim()}>
               {editingId ? "Update Recipe" : "Save Recipe"}
             </button>
           </div>
@@ -357,9 +681,10 @@ export default function RecipeTracker() {
     const r = selectedRecipe;
     return (
       <div style={styles.app}>
+        <TabNav />
         <div style={styles.detailContainer}>
           <div style={styles.detailTop}>
-            <button style={styles.backBtn} onClick={() => setView("grid")}>← Back</button>
+            <button style={styles.backBtn} onClick={() => setView("grid")}>{"\u2190"} Back</button>
             <div style={styles.detailActions}>
               <button style={styles.editBtn} onClick={() => handleEdit(r)}>Edit</button>
               {deleteConfirm === r.id ? (
@@ -375,24 +700,18 @@ export default function RecipeTracker() {
           </div>
 
           <div style={styles.detailHero}>
-            <span style={styles.detailEmoji}>{r.image || "🍽️"}</span>
+            <span style={styles.detailEmoji}>{r.image || "\ud83c\udf7d\ufe0f"}</span>
             <div>
               <h1 style={styles.detailTitle}>{r.title}</h1>
               <div style={styles.detailMeta}>
                 <span style={styles.badge}>{r.category}</span>
-                {r.prepTime && <span style={styles.metaItem}>🕐 Prep: {r.prepTime}</span>}
-                {r.cookTime && <span style={styles.metaItem}>🔥 Cook: {r.cookTime}</span>}
-                {r.servings && <span style={styles.metaItem}>🍽️ Serves: {r.servings}</span>}
+                {r.prepTime && <span style={styles.metaItem}>{"\ud83d\udd50"} Prep: {r.prepTime}</span>}
+                {r.cookTime && <span style={styles.metaItem}>{"\ud83d\udd25"} Cook: {r.cookTime}</span>}
+                {r.servings && <span style={styles.metaItem}>{"\ud83c\udf7d\ufe0f"} Serves: {r.servings}</span>}
               </div>
               <div style={styles.stars}>
                 {[1, 2, 3, 4, 5].map((s) => (
-                  <span
-                    key={s}
-                    style={{ ...styles.star, color: s <= r.rating ? "#E8A838" : "#ddd", cursor: "pointer" }}
-                    onClick={() => handleRating(r, s)}
-                  >
-                    ★
-                  </span>
+                  <span key={s} style={{ ...styles.star, color: s <= r.rating ? "#E8A838" : "#ddd", cursor: "pointer" }} onClick={() => handleRating(r, s)}>{"\u2605"}</span>
                 ))}
               </div>
             </div>
@@ -404,7 +723,7 @@ export default function RecipeTracker() {
               <div style={styles.ingredientsList}>
                 {r.ingredients.map((ing, i) => (
                   <div key={i} style={styles.ingredientItem}>
-                    <span style={styles.dot}>●</span>
+                    <span style={styles.dot}>{"\u25cf"}</span>
                     <span>{ing}</span>
                   </div>
                 ))}
@@ -436,57 +755,37 @@ export default function RecipeTracker() {
   // ── GRID VIEW ──
   return (
     <div style={styles.app}>
+      <TabNav />
       <header style={styles.header}>
         <div style={styles.headerLeft}>
           <h1 style={styles.logo}>
-            <span style={styles.logoIcon}>📖</span> Liam and Abby's Kitchen
+            <span style={styles.logoIcon}>{"\ud83d\udcd6"}</span> Liam and Abby's Kitchen
           </h1>
           <p style={styles.subtitle}>{recipes.length} recipe{recipes.length !== 1 ? "s" : ""} saved</p>
         </div>
-        <button
-          style={styles.newBtn}
-          onClick={() => { setFormData({ ...EMPTY_RECIPE }); setEditingId(null); setView("form"); }}
-        >
+        <button style={styles.newBtn} onClick={() => { setFormData({ ...EMPTY_RECIPE }); setEditingId(null); setView("form"); }}>
           + New Recipe
         </button>
       </header>
 
       <div style={styles.toolbar}>
         <div style={styles.searchWrap}>
-          <span style={styles.searchIcon}>🔍</span>
-          <input
-            style={styles.searchInput}
-            placeholder="Search recipes or ingredients..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-          {search && (
-            <button style={styles.clearSearch} onClick={() => setSearch("")}>×</button>
-          )}
+          <span style={styles.searchIcon}>{"\ud83d\udd0d"}</span>
+          <input style={styles.searchInput} placeholder="Search recipes or ingredients..." value={search} onChange={(e) => setSearch(e.target.value)} />
+          {search && <button style={styles.clearSearch} onClick={() => setSearch("")}>{"\u00d7"}</button>}
         </div>
         <div style={styles.filters}>
           {["All", ...CATEGORIES].map((c) => (
-            <button
-              key={c}
-              style={{
-                ...styles.filterChip,
-                ...(filterCategory === c ? styles.filterChipActive : {}),
-              }}
-              onClick={() => setFilterCategory(c)}
-            >
-              {c}
-            </button>
+            <button key={c} style={{ ...styles.filterChip, ...(filterCategory === c ? styles.filterChipActive : {}) }} onClick={() => setFilterCategory(c)}>{c}</button>
           ))}
         </div>
       </div>
 
       {filteredRecipes.length === 0 ? (
         <div style={styles.empty}>
-          <span style={styles.emptyIcon}>🍳</span>
+          <span style={styles.emptyIcon}>{"\ud83c\udf73"}</span>
           <p style={styles.emptyText}>
-            {recipes.length === 0
-              ? "Your recipe box is empty. Add your first recipe!"
-              : "No recipes match your search."}
+            {recipes.length === 0 ? "Your recipe box is empty. Add your first recipe!" : "No recipes match your search."}
           </p>
         </div>
       ) : (
@@ -494,22 +793,22 @@ export default function RecipeTracker() {
           {filteredRecipes.map((r) => (
             <div key={r.id} style={styles.card} onClick={() => openDetail(r)}>
               <div style={styles.cardTop}>
-                <span style={styles.cardEmoji}>{r.image || "🍽️"}</span>
+                <span style={styles.cardEmoji}>{r.image || "\ud83c\udf7d\ufe0f"}</span>
                 <span style={styles.cardBadge}>{r.category}</span>
               </div>
               <h3 style={styles.cardTitle}>{r.title}</h3>
               <div style={styles.cardMeta}>
-                {r.prepTime && <span>🕐 {r.prepTime}</span>}
-                {r.cookTime && <span>🔥 {r.cookTime}</span>}
-                {r.servings && <span>🍽️ {r.servings}</span>}
+                {r.prepTime && <span>{"\ud83d\udd50"} {r.prepTime}</span>}
+                {r.cookTime && <span>{"\ud83d\udd25"} {r.cookTime}</span>}
+                {r.servings && <span>{"\ud83c\udf7d\ufe0f"} {r.servings}</span>}
               </div>
               <div style={styles.cardStars}>
                 {[1, 2, 3, 4, 5].map((s) => (
-                  <span key={s} style={{ color: s <= r.rating ? "#E8A838" : "#ddd", fontSize: 14 }}>★</span>
+                  <span key={s} style={{ color: s <= r.rating ? "#E8A838" : "#ddd", fontSize: 14 }}>{"\u2605"}</span>
                 ))}
               </div>
               <p style={styles.cardIngredients}>
-                {r.ingredients.slice(0, 3).join(" · ")}{r.ingredients.length > 3 ? " ..." : ""}
+                {r.ingredients.slice(0, 3).join(" \u00b7 ")}{r.ingredients.length > 3 ? " ..." : ""}
               </p>
             </div>
           ))}
@@ -531,6 +830,21 @@ const styles = {
   loadingWrap: { display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", background: "#FDF6EC" },
   loadingText: { fontFamily: "'DM Sans', sans-serif", fontSize: 18, color: "#A08060" },
 
+  // Tabs
+  tabBar: {
+    display: "flex", gap: 4, marginBottom: 24,
+    background: "#EDE5DA", borderRadius: 14, padding: 4, maxWidth: 320,
+  },
+  tabBtn: {
+    flex: 1, padding: "10px 20px", border: "none", borderRadius: 11,
+    fontSize: 14, fontWeight: 600, cursor: "pointer",
+    background: "transparent", color: "#6B5744", fontFamily: "inherit", transition: "all 0.15s",
+  },
+  tabBtnActive: {
+    background: "#FFFDF8", color: "#3D2E1F",
+    boxShadow: "0 1px 4px rgba(61,46,31,0.1)",
+  },
+
   // Header
   header: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24, flexWrap: "wrap", gap: 16 },
   headerLeft: {},
@@ -538,92 +852,43 @@ const styles = {
   logoIcon: { fontSize: 26 },
   subtitle: { margin: "4px 0 0", fontSize: 14, color: "#A08060", fontWeight: 400 },
   newBtn: {
-    background: "#C75B2A",
-    color: "#fff",
-    border: "none",
-    borderRadius: 12,
-    padding: "12px 24px",
-    fontSize: 15,
-    fontWeight: 600,
-    cursor: "pointer",
-    boxShadow: "0 2px 8px rgba(199,91,42,0.3)",
-    transition: "transform 0.15s",
+    background: "#C75B2A", color: "#fff", border: "none", borderRadius: 12,
+    padding: "12px 24px", fontSize: 15, fontWeight: 600, cursor: "pointer",
+    boxShadow: "0 2px 8px rgba(199,91,42,0.3)", transition: "transform 0.15s",
   },
 
   // Toolbar
   toolbar: { marginBottom: 24 },
-  searchWrap: {
-    position: "relative",
-    marginBottom: 12,
-  },
+  searchWrap: { position: "relative", marginBottom: 12 },
   searchIcon: { position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", fontSize: 16 },
   searchInput: {
-    width: "100%",
-    boxSizing: "border-box",
-    padding: "12px 40px 12px 42px",
-    border: "2px solid #E8DDD0",
-    borderRadius: 12,
-    fontSize: 15,
-    background: "#FFFDF8",
-    color: "#3D2E1F",
-    outline: "none",
-    fontFamily: "inherit",
+    width: "100%", boxSizing: "border-box", padding: "12px 40px 12px 42px",
+    border: "2px solid #E8DDD0", borderRadius: 12, fontSize: 15,
+    background: "#FFFDF8", color: "#3D2E1F", outline: "none", fontFamily: "inherit",
   },
   clearSearch: {
-    position: "absolute",
-    right: 12,
-    top: "50%",
-    transform: "translateY(-50%)",
-    background: "none",
-    border: "none",
-    fontSize: 20,
-    cursor: "pointer",
-    color: "#A08060",
+    position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)",
+    background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#A08060",
   },
   filters: { display: "flex", gap: 8, flexWrap: "wrap" },
   filterChip: {
-    padding: "6px 16px",
-    border: "2px solid #E8DDD0",
-    borderRadius: 20,
-    background: "transparent",
-    fontSize: 13,
-    fontWeight: 500,
-    cursor: "pointer",
-    color: "#6B5744",
-    fontFamily: "inherit",
-    transition: "all 0.15s",
+    padding: "6px 16px", border: "2px solid #E8DDD0", borderRadius: 20,
+    background: "transparent", fontSize: 13, fontWeight: 500,
+    cursor: "pointer", color: "#6B5744", fontFamily: "inherit", transition: "all 0.15s",
   },
-  filterChipActive: {
-    background: "#3D2E1F",
-    color: "#FDF6EC",
-    borderColor: "#3D2E1F",
-  },
+  filterChipActive: { background: "#3D2E1F", color: "#FDF6EC", borderColor: "#3D2E1F" },
 
   // Grid
-  grid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
-    gap: 20,
-  },
+  grid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 20 },
   card: {
-    background: "#FFFDF8",
-    borderRadius: 16,
-    padding: 20,
-    border: "2px solid #EDE5DA",
-    cursor: "pointer",
+    background: "#FFFDF8", borderRadius: 16, padding: 20,
+    border: "2px solid #EDE5DA", cursor: "pointer",
     transition: "transform 0.15s, box-shadow 0.15s",
     boxShadow: "0 1px 4px rgba(61,46,31,0.06)",
   },
   cardTop: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 },
   cardEmoji: { fontSize: 36 },
-  cardBadge: {
-    background: "#F0E6D8",
-    color: "#6B5744",
-    padding: "4px 12px",
-    borderRadius: 12,
-    fontSize: 12,
-    fontWeight: 600,
-  },
+  cardBadge: { background: "#F0E6D8", color: "#6B5744", padding: "4px 12px", borderRadius: 12, fontSize: 12, fontWeight: 600 },
   cardTitle: { fontSize: 18, fontWeight: 700, margin: "0 0 8px", lineHeight: 1.3 },
   cardMeta: { display: "flex", gap: 12, fontSize: 13, color: "#A08060", marginBottom: 8 },
   cardStars: { marginBottom: 8 },
@@ -643,114 +908,47 @@ const styles = {
   formRow: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 },
   label: { fontSize: 13, fontWeight: 600, color: "#6B5744", textTransform: "uppercase", letterSpacing: "0.5px" },
   input: {
-    padding: "10px 14px",
-    border: "2px solid #E8DDD0",
-    borderRadius: 10,
-    fontSize: 15,
-    background: "#FFFDF8",
-    color: "#3D2E1F",
-    outline: "none",
-    fontFamily: "inherit",
+    padding: "10px 14px", border: "2px solid #E8DDD0", borderRadius: 10,
+    fontSize: 15, background: "#FFFDF8", color: "#3D2E1F", outline: "none", fontFamily: "inherit",
   },
   select: {
-    padding: "10px 14px",
-    border: "2px solid #E8DDD0",
-    borderRadius: 10,
-    fontSize: 15,
-    background: "#FFFDF8",
-    color: "#3D2E1F",
-    outline: "none",
-    fontFamily: "inherit",
+    padding: "10px 14px", border: "2px solid #E8DDD0", borderRadius: 10,
+    fontSize: 15, background: "#FFFDF8", color: "#3D2E1F", outline: "none", fontFamily: "inherit",
   },
   textarea: {
-    padding: "10px 14px",
-    border: "2px solid #E8DDD0",
-    borderRadius: 10,
-    fontSize: 15,
-    background: "#FFFDF8",
-    color: "#3D2E1F",
-    outline: "none",
-    fontFamily: "inherit",
-    resize: "vertical",
+    padding: "10px 14px", border: "2px solid #E8DDD0", borderRadius: 10,
+    fontSize: 15, background: "#FFFDF8", color: "#3D2E1F", outline: "none", fontFamily: "inherit", resize: "vertical",
   },
   listRow: { display: "flex", gap: 8, alignItems: "center", marginBottom: 6 },
   stepNum: {
-    width: 28,
-    height: 28,
-    borderRadius: "50%",
-    background: "#3D2E1F",
-    color: "#FDF6EC",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontSize: 13,
-    fontWeight: 700,
-    flexShrink: 0,
+    width: 28, height: 28, borderRadius: "50%", background: "#3D2E1F", color: "#FDF6EC",
+    display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, flexShrink: 0,
   },
   removeBtn: {
-    width: 32,
-    height: 32,
-    border: "none",
-    borderRadius: 8,
-    background: "#F5E0D0",
-    color: "#C75B2A",
-    fontSize: 18,
-    cursor: "pointer",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
+    width: 32, height: 32, border: "none", borderRadius: 8, background: "#F5E0D0",
+    color: "#C75B2A", fontSize: 18, cursor: "pointer",
+    display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
   },
   addBtn: {
-    background: "none",
-    border: "2px dashed #D4C8BA",
-    borderRadius: 10,
-    padding: "10px",
-    fontSize: 14,
-    color: "#A08060",
-    cursor: "pointer",
-    fontFamily: "inherit",
-    fontWeight: 600,
+    background: "none", border: "2px dashed #D4C8BA", borderRadius: 10,
+    padding: "10px", fontSize: 14, color: "#A08060", cursor: "pointer", fontFamily: "inherit", fontWeight: 600,
   },
   saveBtn: {
-    background: "#C75B2A",
-    color: "#fff",
-    border: "none",
-    borderRadius: 12,
-    padding: "14px 24px",
-    fontSize: 16,
-    fontWeight: 700,
-    cursor: "pointer",
-    boxShadow: "0 2px 8px rgba(199,91,42,0.3)",
-    marginTop: 8,
-    fontFamily: "inherit",
+    background: "#C75B2A", color: "#fff", border: "none", borderRadius: 12,
+    padding: "14px 24px", fontSize: 16, fontWeight: 700, cursor: "pointer",
+    boxShadow: "0 2px 8px rgba(199,91,42,0.3)", marginTop: 8, fontFamily: "inherit",
   },
   emojiSection: { position: "relative", alignSelf: "flex-start" },
   emojiDisplay: {
-    width: 72,
-    height: 72,
-    borderRadius: 16,
-    background: "#F0E6D8",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontSize: 36,
-    cursor: "pointer",
-    border: "2px solid #E8DDD0",
+    width: 72, height: 72, borderRadius: 16, background: "#F0E6D8",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    fontSize: 36, cursor: "pointer", border: "2px solid #E8DDD0",
   },
   emojiGrid: {
-    position: "absolute",
-    top: 80,
-    left: 0,
-    background: "#FFFDF8",
-    border: "2px solid #E8DDD0",
-    borderRadius: 12,
-    padding: 8,
-    display: "grid",
-    gridTemplateColumns: "repeat(5, 1fr)",
-    gap: 4,
-    zIndex: 10,
-    boxShadow: "0 8px 24px rgba(61,46,31,0.12)",
+    position: "absolute", top: 80, left: 0, background: "#FFFDF8",
+    border: "2px solid #E8DDD0", borderRadius: 12, padding: 8,
+    display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 4,
+    zIndex: 10, boxShadow: "0 8px 24px rgba(61,46,31,0.12)",
   },
   emojiOption: { fontSize: 24, padding: 6, cursor: "pointer", textAlign: "center", borderRadius: 8 },
 
@@ -759,36 +957,16 @@ const styles = {
   detailTop: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 },
   detailActions: { display: "flex", gap: 8, alignItems: "center" },
   backBtn: {
-    background: "none",
-    border: "none",
-    fontSize: 15,
-    fontWeight: 600,
-    color: "#C75B2A",
-    cursor: "pointer",
-    padding: 0,
-    fontFamily: "inherit",
+    background: "none", border: "none", fontSize: 15, fontWeight: 600,
+    color: "#C75B2A", cursor: "pointer", padding: 0, fontFamily: "inherit",
   },
   editBtn: {
-    background: "#F0E6D8",
-    border: "none",
-    borderRadius: 10,
-    padding: "8px 18px",
-    fontSize: 14,
-    fontWeight: 600,
-    color: "#3D2E1F",
-    cursor: "pointer",
-    fontFamily: "inherit",
+    background: "#F0E6D8", border: "none", borderRadius: 10,
+    padding: "8px 18px", fontSize: 14, fontWeight: 600, color: "#3D2E1F", cursor: "pointer", fontFamily: "inherit",
   },
   deleteBtn: {
-    background: "none",
-    border: "2px solid #E8DDD0",
-    borderRadius: 10,
-    padding: "8px 18px",
-    fontSize: 14,
-    fontWeight: 600,
-    color: "#C75B2A",
-    cursor: "pointer",
-    fontFamily: "inherit",
+    background: "none", border: "2px solid #E8DDD0", borderRadius: 10,
+    padding: "8px 18px", fontSize: 14, fontWeight: 600, color: "#C75B2A", cursor: "pointer", fontFamily: "inherit",
   },
   confirmWrap: { display: "flex", alignItems: "center", gap: 6 },
   confirmText: { fontSize: 13, fontWeight: 600, color: "#C75B2A" },
@@ -802,67 +980,30 @@ const styles = {
   },
   detailHero: { display: "flex", gap: 20, alignItems: "flex-start", marginBottom: 32 },
   detailEmoji: {
-    fontSize: 56,
-    width: 88,
-    height: 88,
-    borderRadius: 20,
-    background: "#F0E6D8",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
+    fontSize: 56, width: 88, height: 88, borderRadius: 20, background: "#F0E6D8",
+    display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
   },
   detailTitle: { fontSize: 28, fontWeight: 800, margin: "0 0 8px", lineHeight: 1.2 },
   detailMeta: { display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", marginBottom: 8 },
-  badge: {
-    background: "#3D2E1F",
-    color: "#FDF6EC",
-    padding: "4px 14px",
-    borderRadius: 12,
-    fontSize: 12,
-    fontWeight: 700,
-  },
+  badge: { background: "#3D2E1F", color: "#FDF6EC", padding: "4px 14px", borderRadius: 12, fontSize: 12, fontWeight: 700 },
   metaItem: { fontSize: 14, color: "#A08060" },
   stars: { display: "flex", gap: 2 },
   star: { fontSize: 22 },
-
   detailBody: { display: "flex", flexDirection: "column", gap: 28 },
   detailSection: {},
   sectionTitle: {
-    fontSize: 14,
-    fontWeight: 700,
-    textTransform: "uppercase",
-    letterSpacing: "1px",
-    color: "#A08060",
-    marginBottom: 12,
-    marginTop: 0,
-    borderBottom: "2px solid #E8DDD0",
-    paddingBottom: 8,
+    fontSize: 14, fontWeight: 700, textTransform: "uppercase", letterSpacing: "1px",
+    color: "#A08060", marginBottom: 12, marginTop: 0, borderBottom: "2px solid #E8DDD0", paddingBottom: 8,
   },
   ingredientsList: { display: "flex", flexDirection: "column", gap: 6 },
   ingredientItem: { display: "flex", gap: 10, alignItems: "baseline", fontSize: 16, lineHeight: 1.6 },
   dot: { color: "#C75B2A", fontSize: 8, flexShrink: 0, marginTop: 4 },
   stepItem: { display: "flex", gap: 14, alignItems: "flex-start", marginBottom: 16 },
   stepCircle: {
-    width: 32,
-    height: 32,
-    borderRadius: "50%",
-    background: "#C75B2A",
-    color: "#fff",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontSize: 14,
-    fontWeight: 700,
-    flexShrink: 0,
-    marginTop: 2,
+    width: 32, height: 32, borderRadius: "50%", background: "#C75B2A", color: "#fff",
+    display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700, flexShrink: 0, marginTop: 2,
   },
   stepText: { margin: 0, fontSize: 16, lineHeight: 1.6, flex: 1 },
-  notesBox: {
-    background: "#F8F0E4",
-    borderRadius: 14,
-    padding: 20,
-    border: "2px solid #E8DDD0",
-  },
+  notesBox: { background: "#F8F0E4", borderRadius: 14, padding: 20, border: "2px solid #E8DDD0" },
   notesText: { margin: 0, fontSize: 15, lineHeight: 1.7, color: "#6B5744", fontStyle: "italic" },
 };
