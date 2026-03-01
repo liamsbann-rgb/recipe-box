@@ -2,11 +2,11 @@ import { useState, useEffect, useCallback } from "react";
 
 const STORAGE_KEY = "recipes-data";
 
-const CATEGORIES = ["Breakfast", "Lunch", "Dinner", "Snack", "Dessert", "Drink"];
+const CATEGORIES = ["Breakfast", "Healthy Lunch", "Healthy Dinner", "Date Night", "Sunday Specials", "Snacks", "Sweet Treats", "Work Lunches"];
 
 const EMPTY_RECIPE = {
   title: "",
-  category: "Dinner",
+  category: "Healthy Dinner",
   prepTime: "",
   cookTime: "",
   servings: "",
@@ -21,7 +21,7 @@ const SAMPLE_RECIPES = [
   {
     id: "sample-1",
     title: "Classic Pasta Aglio e Olio",
-    category: "Dinner",
+    category: "Date Night",
     prepTime: "5 min",
     cookTime: "15 min",
     servings: "4",
@@ -50,7 +50,7 @@ const SAMPLE_RECIPES = [
   {
     id: "sample-2",
     title: "Honey Sriracha Glazed Salmon",
-    category: "Dinner",
+    category: "Healthy Dinner",
     prepTime: "10 min",
     cookTime: "12 min",
     servings: "2",
@@ -426,7 +426,7 @@ export default function RecipeTracker() {
       <header style={styles.header}>
         <div style={styles.headerLeft}>
           <h1 style={styles.logo}>
-            <span style={styles.logoIcon}>📖</span> Liam and Abby's Kitchen
+            <span style={styles.logoIcon}>📖</span> Recipe Box
           </h1>
           <p style={styles.subtitle}>{recipes.length} recipe{recipes.length !== 1 ? "s" : ""} saved</p>
         </div>
