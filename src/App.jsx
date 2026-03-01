@@ -815,7 +815,7 @@ export default function RecipeTracker() {
       <header style={styles.header}>
         <div style={styles.headerLeft}>
           <h1 style={styles.logo}>
-            <span style={styles.logoIcon}>{"\ud83d\udcd6"}</span> Recipe Box
+            <span style={styles.logoIcon}>{"\ud83d\udcd6"}</span> The Kitchen
           </h1>
           <p style={styles.subtitle}>{recipes.length} recipe{recipes.length !== 1 ? "s" : ""} saved</p>
         </div>
