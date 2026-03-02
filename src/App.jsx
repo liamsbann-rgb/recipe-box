@@ -242,15 +242,15 @@ function LoginScreen() {
 }
 
 // ── MEAL PLANNER COMPONENT ──
-function MealPlanner({ recipes, mealPlan, saveMealPlan }) {
+function MealPlanner({ recipes, mealPlan, saveMealPlan, checkedGrocery, saveCheckedGrocery }) {
   const [weekOffset, setWeekOffset] = useState(0);
   const [picker, setPicker] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
-  const [checkedItems, setCheckedItems] = useState({});
 
   const weekKey = getWeekKey(weekOffset);
   const weekDates = getWeekDates(weekOffset);
   const plan = mealPlan[weekKey] || {};
+  const checkedItems = checkedGrocery[weekKey] || {};
 
   const weekLabel = () => {
     const d = weekDates[0];
@@ -292,7 +292,9 @@ function MealPlanner({ recipes, mealPlan, saveMealPlan }) {
     const updated = { ...mealPlan };
     delete updated[weekKey];
     saveMealPlan(updated);
-    setCheckedItems({});
+    const updatedChecked = { ...checkedGrocery };
+    delete updatedChecked[weekKey];
+    saveCheckedGrocery(updatedChecked);
   };
 
   const groceryItems = (() => {
@@ -430,7 +432,10 @@ function MealPlanner({ recipes, mealPlan, saveMealPlan }) {
   })();
 
   const toggleCheck = (idx) => {
-    setCheckedItems((prev) => ({ ...prev, [idx]: !prev[idx] }));
+    const updated = { ...checkedGrocery };
+    if (!updated[weekKey]) updated[weekKey] = {};
+    updated[weekKey][idx] = !checkedItems[idx];
+    saveCheckedGrocery(updated);
   };
 
   const filteredRecipes = recipes.filter((r) =>
@@ -449,9 +454,9 @@ function MealPlanner({ recipes, mealPlan, saveMealPlan }) {
           <p style={{ margin: "4px 0 0", fontSize: 14, color: "#A08060" }}>{assignedCount} meal{assignedCount !== 1 ? "s" : ""} planned this week</p>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <button style={styles.filterChip} onClick={() => { setWeekOffset(weekOffset - 1); setCheckedItems({}); }}>{"\u2190"} Prev</button>
+          <button style={styles.filterChip} onClick={() => setWeekOffset(weekOffset - 1)}>{"\u2190"} Prev</button>
           <span style={{ fontSize: 15, fontWeight: 600, minWidth: 160, textAlign: "center" }}>{weekLabel()}</span>
-          <button style={styles.filterChip} onClick={() => { setWeekOffset(weekOffset + 1); setCheckedItems({}); }}>Next {"\u2192"}</button>
+          <button style={styles.filterChip} onClick={() => setWeekOffset(weekOffset + 1)}>Next {"\u2192"}</button>
           {assignedCount > 0 && (
             <button style={{ ...styles.filterChip, color: "#C75B2A", borderColor: "#C75B2A" }} onClick={clearWeek}>Clear Week</button>
           )}
@@ -633,6 +638,7 @@ export default function RecipeTracker() {
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [mealPlan, setMealPlan] = useState({});
+  const [checkedGrocery, setCheckedGrocery] = useState({});
   const [showImport, setShowImport] = useState(false);
   const [importUrl, setImportUrl] = useState("");
   const [importLoading, setImportLoading] = useState(false);
@@ -680,6 +686,19 @@ export default function RecipeTracker() {
     return () => unsubscribe();
   }, [user]);
 
+  // Real-time sync - checked grocery items (per user)
+  useEffect(() => {
+    if (!user) { setCheckedGrocery({}); return; }
+    const unsubscribe = onSnapshot(doc(db, "users", user.uid, "mealplans", "checkedGrocery"), (snapshot) => {
+      if (snapshot.exists()) {
+        setCheckedGrocery(snapshot.data().checked || {});
+      } else {
+        setCheckedGrocery({});
+      }
+    });
+    return () => unsubscribe();
+  }, [user]);
+
   const saveRecipe = useCallback(async (recipe) => {
     if (!user) return;
     try {
@@ -706,6 +725,16 @@ export default function RecipeTracker() {
       await setDoc(doc(db, "users", user.uid, "mealplans", "current"), { plan });
     } catch (e) {
       console.error("Meal plan save error:", e);
+    }
+  }, [user]);
+
+  const saveCheckedGrocery = useCallback(async (checked) => {
+    if (!user) return;
+    setCheckedGrocery(checked);
+    try {
+      await setDoc(doc(db, "users", user.uid, "mealplans", "checkedGrocery"), { checked });
+    } catch (e) {
+      console.error("Checked grocery save error:", e);
     }
   }, [user]);
 
@@ -896,7 +925,7 @@ export default function RecipeTracker() {
     return (
       <div style={styles.app}>
         <TabNav />
-        <MealPlanner recipes={recipes} mealPlan={mealPlan} saveMealPlan={saveMealPlan} />
+        <MealPlanner recipes={recipes} mealPlan={mealPlan} saveMealPlan={saveMealPlan} checkedGrocery={checkedGrocery} saveCheckedGrocery={saveCheckedGrocery} />
       </div>
     );
   }
