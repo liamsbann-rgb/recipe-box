@@ -296,8 +296,81 @@ function MealPlanner({ recipes, mealPlan, saveMealPlan }) {
   };
 
   const groceryItems = (() => {
-    const items = [];
-    const seen = new Set();
+    // Parse an ingredient string into { amount, unit, name }
+    const UNIT_MAP = {
+      "tsp": "tsp", "teaspoon": "tsp", "teaspoons": "tsp",
+      "tbsp": "tbsp", "tablespoon": "tbsp", "tablespoons": "tbsp",
+      "cup": "cup", "cups": "cup",
+      "oz": "oz", "ounce": "oz", "ounces": "oz",
+      "lb": "lb", "lbs": "lb", "pound": "lb", "pounds": "lb",
+      "g": "g", "gram": "g", "grams": "g",
+      "kg": "kg", "kilogram": "kg", "kilograms": "kg",
+      "ml": "ml", "milliliter": "ml", "milliliters": "ml",
+      "l": "l", "liter": "l", "liters": "l",
+      "pinch": "pinch", "pinches": "pinch",
+      "clove": "clove", "cloves": "clove",
+      "slice": "slice", "slices": "slice",
+      "piece": "piece", "pieces": "piece",
+      "can": "can", "cans": "can",
+      "stick": "stick", "sticks": "stick",
+      "large": "large", "medium": "medium", "small": "small",
+    };
+    const fractionMap = { "\u00bd": 0.5, "\u2153": 0.33, "\u2154": 0.67, "\u00bc": 0.25, "\u00be": 0.75 };
+
+    function parseIngredient(raw) {
+      let text = raw.trim();
+      // Replace unicode fractions
+      for (const [frac, val] of Object.entries(fractionMap)) {
+        text = text.replace(frac, String(val));
+      }
+      // Try to match: [number] [unit] [name]
+      // Number can be: "1", "1.5", "1/2", "1 1/2" (mixed)
+      const numPattern = /^(\d+\s+\d+\/\d+|\d+\/\d+|\d+\.?\d*)\s*/;
+      const match = text.match(numPattern);
+      let amount = 0;
+      let rest = text;
+      if (match) {
+        const numStr = match[1];
+        if (numStr.includes(" ") && numStr.includes("/")) {
+          // Mixed like "1 1/2"
+          const parts = numStr.split(/\s+/);
+          const [n, d] = parts[1].split("/").map(Number);
+          amount = parseInt(parts[0]) + n / d;
+        } else if (numStr.includes("/")) {
+          const [n, d] = numStr.split("/").map(Number);
+          amount = n / d;
+        } else {
+          amount = parseFloat(numStr);
+        }
+        rest = text.slice(match[0].length);
+      }
+      // Try to match a unit
+      let unit = "";
+      const unitMatch = rest.match(/^(\S+)\s+/);
+      if (unitMatch) {
+        const candidate = unitMatch[1].toLowerCase().replace(/[.,]/g, "");
+        // Handle things like "(8 tablespoons)" in parentheses
+        const parenMatch = rest.match(/^\(.*?\)\s*/);
+        if (parenMatch) {
+          rest = rest.slice(parenMatch[0].length);
+          const innerUnitMatch = rest.match(/^(\S+)\s+/);
+          if (innerUnitMatch && UNIT_MAP[innerUnitMatch[1].toLowerCase().replace(/[.,]/g, "")]) {
+            unit = UNIT_MAP[innerUnitMatch[1].toLowerCase().replace(/[.,]/g, "")];
+            rest = rest.slice(innerUnitMatch[0].length);
+          }
+        } else if (UNIT_MAP[candidate]) {
+          unit = UNIT_MAP[candidate];
+          rest = rest.slice(unitMatch[0].length);
+        }
+      }
+      // Clean up the name
+      const name = rest.replace(/^(of\s+)/i, "").trim().toLowerCase()
+        .replace(/,.*$/, "").replace(/\(.*?\)/g, "").trim();
+      return { amount, unit, name, originalName: rest.trim() };
+    }
+
+    // Collect all ingredients with their parsed data
+    const merged = new Map(); // key = normalized name -> { amounts: [{amount, unit, from}], originalName }
     DAYS.forEach((day) => {
       MEAL_SLOTS.forEach((slot) => {
         const meal = plan[day]?.[slot];
@@ -306,18 +379,53 @@ function MealPlanner({ recipes, mealPlan, saveMealPlan }) {
           const mult = meal.multiplier || 1;
           if (recipe?.ingredients) {
             recipe.ingredients.forEach((ing) => {
-              const key = ing.toLowerCase().trim() + "|" + mult;
-              const baseKey = ing.toLowerCase().trim();
-              if (!seen.has(key) && !seen.has(baseKey)) {
-                seen.add(key);
-                seen.add(baseKey);
-                items.push({ text: scaleIngredient(ing, mult), from: recipe.title, multiplier: mult });
+              const parsed = parseIngredient(ing);
+              const key = parsed.name || ing.toLowerCase().trim();
+              if (!key) return;
+              if (!merged.has(key)) {
+                merged.set(key, { amounts: [], originalName: parsed.originalName || ing, from: [] });
+              }
+              const entry = merged.get(key);
+              entry.amounts.push({ amount: parsed.amount * mult, unit: parsed.unit });
+              if (!entry.from.includes(recipe.title)) {
+                entry.from.push(recipe.title);
               }
             });
           }
         }
       });
     });
+
+    // Format merged items
+    const items = [];
+    for (const [key, entry] of merged) {
+      // Group amounts by unit and sum
+      const byUnit = {};
+      let hasAnyAmount = false;
+      entry.amounts.forEach(({ amount, unit }) => {
+        if (amount > 0) {
+          hasAnyAmount = true;
+          const u = unit || "_bare";
+          byUnit[u] = (byUnit[u] || 0) + amount;
+        }
+      });
+      let display;
+      if (!hasAnyAmount) {
+        display = entry.originalName;
+      } else {
+        const parts = [];
+        for (const [u, total] of Object.entries(byUnit)) {
+          const fmt = total % 1 === 0 ? String(total) : total.toFixed(1).replace(/\.0$/, "");
+          if (u === "_bare") {
+            parts.push(fmt);
+          } else {
+            parts.push(`${fmt} ${u}`);
+          }
+        }
+        display = parts.join(" + ") + " " + entry.originalName;
+      }
+      items.push({ text: display, from: entry.from.join(", ") });
+    }
     return items;
   })();
 
