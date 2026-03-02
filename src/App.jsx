@@ -248,6 +248,7 @@ function MealPlanner({ recipes, mealPlan, saveMealPlan, checkedGrocery, saveChec
   const [pickedRecipe, setPickedRecipe] = useState(null); // two-step: pick recipe, then pick slots
   const [selectedSlots, setSelectedSlots] = useState([]); // [{day, slot}, ...]
   const [searchTerm, setSearchTerm] = useState("");
+  const [pickerCategory, setPickerCategory] = useState("All");
 
   const weekKey = getWeekKey(weekOffset);
   const weekDates = getWeekDates(weekOffset);
@@ -468,9 +469,11 @@ function MealPlanner({ recipes, mealPlan, saveMealPlan, checkedGrocery, saveChec
     saveCheckedGrocery(updated);
   };
 
-  const filteredRecipes = recipes.filter((r) =>
-    !searchTerm || r.title.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredRecipes = recipes.filter((r) => {
+    const matchesSearch = !searchTerm || r.title.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesCategory = pickerCategory === "All" || r.category === pickerCategory;
+    return matchesSearch && matchesCategory;
+  });
 
   const assignedCount = DAYS.reduce((acc, day) =>
     acc + MEAL_SLOTS.reduce((a, slot) => a + (plan[day]?.[slot] ? 1 : 0), 0), 0
@@ -537,7 +540,7 @@ function MealPlanner({ recipes, mealPlan, saveMealPlan, checkedGrocery, saveChec
                       </div>
                     ) : (
                       <button
-                        onClick={() => { setPicker({ day, slot }); setSearchTerm(""); }}
+                        onClick={() => { setPicker({ day, slot }); setSearchTerm(""); setPickerCategory("All"); }}
                         style={{
                           width: "100%", background: "transparent", border: "1px dashed #D4C8BA",
                           borderRadius: 8, padding: "6px", fontSize: 16, color: "#D4C8BA",
@@ -572,12 +575,27 @@ function MealPlanner({ recipes, mealPlan, saveMealPlan, checkedGrocery, saveChec
                 </h3>
                 <p style={{ margin: "0 0 12px", fontSize: 13, color: "#A08060" }}>Pick a recipe from your collection</p>
                 <input
-                  style={{ ...styles.input, marginBottom: 12 }}
+                  style={{ ...styles.input, marginBottom: 8 }}
                   placeholder="Search recipes..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   autoFocus
                 />
+                <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 10 }}>
+                  {["All", ...CATEGORIES].map((c) => (
+                    <button
+                      key={c}
+                      onClick={() => setPickerCategory(c)}
+                      style={{
+                        padding: "3px 10px", border: "1.5px solid #E8DDD0", borderRadius: 14,
+                        background: pickerCategory === c ? "#3D2E1F" : "transparent",
+                        color: pickerCategory === c ? "#FDF6EC" : "#6B5744",
+                        borderColor: pickerCategory === c ? "#3D2E1F" : "#E8DDD0",
+                        fontSize: 11, fontWeight: 500, cursor: "pointer", fontFamily: "inherit",
+                      }}
+                    >{c}</button>
+                  ))}
+                </div>
                 <div style={{ overflow: "auto", flex: 1 }}>
                   {filteredRecipes.length === 0 ? (
                     <p style={{ textAlign: "center", color: "#A08060", fontSize: 14 }}>No recipes found. Add some recipes first!</p>
