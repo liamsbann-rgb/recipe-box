@@ -525,6 +525,10 @@ export default function RecipeTracker() {
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [mealPlan, setMealPlan] = useState({});
+  const [showImport, setShowImport] = useState(false);
+  const [importUrl, setImportUrl] = useState("");
+  const [importLoading, setImportLoading] = useState(false);
+  const [importError, setImportError] = useState("");
 
   // Listen to auth state
   useEffect(() => {
@@ -672,6 +676,45 @@ export default function RecipeTracker() {
   const handleRating = (recipe, rating) => {
     saveRecipe({ ...recipe, rating });
     if (selectedRecipe?.id === recipe.id) setSelectedRecipe({ ...recipe, rating });
+  };
+
+  const handleImport = async () => {
+    if (!importUrl.trim()) return;
+    setImportLoading(true);
+    setImportError("");
+    try {
+      const resp = await fetch("/api/scrape-recipe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: importUrl.trim() }),
+      });
+      const result = await resp.json();
+      if (result.error) {
+        setImportError(result.error);
+        setImportLoading(false);
+        return;
+      }
+      const data = result.data;
+      setFormData({
+        ...EMPTY_RECIPE,
+        title: data.title || "",
+        ingredients: data.ingredients?.length ? data.ingredients : [""],
+        steps: data.steps?.length ? data.steps : [""],
+        prepTime: data.prepTime || "",
+        cookTime: data.cookTime || "",
+        servings: data.servings || "",
+        notes: data.notes || "",
+        category: data.category || "Healthy Dinner",
+      });
+      setEditingId(null);
+      setShowImport(false);
+      setImportUrl("");
+      setView("form");
+    } catch (e) {
+      console.error("Import error:", e);
+      setImportError("Something went wrong. Please check the URL and try again.");
+    }
+    setImportLoading(false);
   };
 
   // ── AUTH LOADING ──
@@ -934,10 +977,71 @@ export default function RecipeTracker() {
           </h1>
           <p style={styles.subtitle}>{recipes.length} recipe{recipes.length !== 1 ? "s" : ""} saved</p>
         </div>
-        <button style={styles.newBtn} onClick={() => { setFormData({ ...EMPTY_RECIPE }); setEditingId(null); setView("form"); }}>
-          + New Recipe
-        </button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button
+            style={{ ...styles.filterChip, fontWeight: 600, fontSize: 14, padding: "10px 20px" }}
+            onClick={() => { setShowImport(true); setImportUrl(""); setImportError(""); }}
+          >
+            {"\ud83c\udf10"} Import URL
+          </button>
+          <button style={styles.newBtn} onClick={() => { setFormData({ ...EMPTY_RECIPE }); setEditingId(null); setView("form"); }}>
+            + New Recipe
+          </button>
+        </div>
       </header>
+
+      {/* Import from URL Modal */}
+      {showImport && (
+        <div style={{
+          position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+          background: "rgba(61,46,31,0.4)", display: "flex", alignItems: "center",
+          justifyContent: "center", zIndex: 100,
+        }} onClick={() => setShowImport(false)}>
+          <div style={{
+            background: "#FFFDF8", borderRadius: 16, padding: 28,
+            width: "90%", maxWidth: 480,
+            boxShadow: "0 12px 40px rgba(61,46,31,0.2)",
+          }} onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ margin: "0 0 4px", fontSize: 20, fontWeight: 700 }}>
+              {"\ud83c\udf10"} Import Recipe from URL
+            </h3>
+            <p style={{ margin: "0 0 16px", fontSize: 14, color: "#A08060", lineHeight: 1.5 }}>
+              Paste a link from a recipe website and we'll auto-fill the details for you.
+            </p>
+            <input
+              style={{ ...styles.input, width: "100%", boxSizing: "border-box", marginBottom: 12 }}
+              placeholder="https://www.allrecipes.com/recipe/..."
+              value={importUrl}
+              onChange={(e) => setImportUrl(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") handleImport(); }}
+              autoFocus
+            />
+            {importError && (
+              <p style={{ color: "#C75B2A", fontSize: 13, margin: "0 0 12px", lineHeight: 1.4 }}>{importError}</p>
+            )}
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button
+                onClick={() => setShowImport(false)}
+                style={styles.filterChip}
+              >Cancel</button>
+              <button
+                onClick={handleImport}
+                disabled={importLoading || !importUrl.trim()}
+                style={{
+                  ...styles.saveBtn,
+                  marginTop: 0, padding: "10px 24px", fontSize: 14,
+                  opacity: importLoading || !importUrl.trim() ? 0.6 : 1,
+                }}
+              >
+                {importLoading ? "Importing..." : "Import Recipe"}
+              </button>
+            </div>
+            <p style={{ fontSize: 12, color: "#C0A888", marginTop: 16, marginBottom: 0, lineHeight: 1.5 }}>
+              Works best with popular recipe sites like AllRecipes, Bon App\u00e9tit, NYT Cooking, Food Network, etc.
+            </p>
+          </div>
+        </div>
+      )}
 
       <div style={styles.toolbar}>
         <div style={styles.searchWrap}>
