@@ -245,6 +245,8 @@ function LoginScreen() {
 function MealPlanner({ recipes, mealPlan, saveMealPlan, checkedGrocery, saveCheckedGrocery }) {
   const [weekOffset, setWeekOffset] = useState(0);
   const [picker, setPicker] = useState(null);
+  const [pickedRecipe, setPickedRecipe] = useState(null); // two-step: pick recipe, then pick slots
+  const [selectedSlots, setSelectedSlots] = useState([]); // [{day, slot}, ...]
   const [searchTerm, setSearchTerm] = useState("");
 
   const weekKey = getWeekKey(weekOffset);
@@ -266,8 +268,36 @@ function MealPlanner({ recipes, mealPlan, saveMealPlan, checkedGrocery, saveChec
     updated[weekKey][day][slot] = { id: recipe.id, title: recipe.title, image: recipe.image || "\ud83c\udf7d\ufe0f", multiplier: 1 };
     saveMealPlan(updated);
     setPicker(null);
+    setPickedRecipe(null);
+    setSelectedSlots([]);
     setSearchTerm("");
   };
+
+  const assignMultiple = (recipe, slots) => {
+    const updated = { ...mealPlan };
+    if (!updated[weekKey]) updated[weekKey] = {};
+    slots.forEach(({ day, slot }) => {
+      if (!updated[weekKey][day]) updated[weekKey][day] = {};
+      updated[weekKey][day][slot] = { id: recipe.id, title: recipe.title, image: recipe.image || "\ud83c\udf7d\ufe0f", multiplier: 1 };
+    });
+    saveMealPlan(updated);
+    setPicker(null);
+    setPickedRecipe(null);
+    setSelectedSlots([]);
+    setSearchTerm("");
+  };
+
+  const toggleSlotSelection = (day, slot) => {
+    const exists = selectedSlots.find((s) => s.day === day && s.slot === slot);
+    if (exists) {
+      setSelectedSlots(selectedSlots.filter((s) => !(s.day === day && s.slot === slot)));
+    } else {
+      setSelectedSlots([...selectedSlots, { day, slot }]);
+    }
+  };
+
+  const isSlotSelected = (day, slot) => selectedSlots.some((s) => s.day === day && s.slot === slot);
+  const isSlotTaken = (day, slot) => !!plan[day]?.[slot];
 
   const cycleMultiplier = (day, slot) => {
     const updated = { ...mealPlan };
@@ -528,49 +558,126 @@ function MealPlanner({ recipes, mealPlan, saveMealPlan, checkedGrocery, saveChec
           position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
           background: "rgba(61,46,31,0.4)", display: "flex", alignItems: "center",
           justifyContent: "center", zIndex: 100,
-        }} onClick={() => setPicker(null)}>
+        }} onClick={() => { setPicker(null); setPickedRecipe(null); setSelectedSlots([]); }}>
           <div style={{
             background: "#FFFDF8", borderRadius: 16, padding: 24,
-            width: "90%", maxWidth: 440, maxHeight: "70vh", display: "flex",
+            width: "90%", maxWidth: pickedRecipe ? 520 : 440, maxHeight: "80vh", display: "flex",
             flexDirection: "column", boxShadow: "0 12px 40px rgba(61,46,31,0.2)",
           }} onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ margin: "0 0 4px", fontSize: 18, fontWeight: 700 }}>
-              Add {picker.slot} {"\u2014"} {picker.day}
-            </h3>
-            <p style={{ margin: "0 0 12px", fontSize: 13, color: "#A08060" }}>Pick a recipe from your collection</p>
-            <input
-              style={{ ...styles.input, marginBottom: 12 }}
-              placeholder="Search recipes..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              autoFocus
-            />
-            <div style={{ overflow: "auto", flex: 1 }}>
-              {filteredRecipes.length === 0 ? (
-                <p style={{ textAlign: "center", color: "#A08060", fontSize: 14 }}>No recipes found. Add some recipes first!</p>
-              ) : (
-                filteredRecipes.map((r) => (
-                  <div
-                    key={r.id}
-                    onClick={() => assignMeal(picker.day, picker.slot, r)}
-                    style={{
-                      display: "flex", alignItems: "center", gap: 10,
-                      padding: "10px 12px", borderRadius: 10, cursor: "pointer",
-                      border: "1px solid #EDE5DA", marginBottom: 6, transition: "background 0.1s",
-                    }}
-                    onMouseEnter={(e) => e.currentTarget.style.background = "#F8F0E4"}
-                    onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
-                  >
-                    <span style={{ fontSize: 24 }}>{r.image || "\ud83c\udf7d\ufe0f"}</span>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 14, fontWeight: 600 }}>{r.title}</div>
-                      <div style={{ fontSize: 12, color: "#A08060" }}>{r.category} {r.cookTime ? `\u00b7 ${r.cookTime}` : ""}</div>
-                    </div>
+
+            {!pickedRecipe ? (
+              <>
+                <h3 style={{ margin: "0 0 4px", fontSize: 18, fontWeight: 700 }}>
+                  Add {picker.slot} {"\u2014"} {picker.day}
+                </h3>
+                <p style={{ margin: "0 0 12px", fontSize: 13, color: "#A08060" }}>Pick a recipe from your collection</p>
+                <input
+                  style={{ ...styles.input, marginBottom: 12 }}
+                  placeholder="Search recipes..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  autoFocus
+                />
+                <div style={{ overflow: "auto", flex: 1 }}>
+                  {filteredRecipes.length === 0 ? (
+                    <p style={{ textAlign: "center", color: "#A08060", fontSize: 14 }}>No recipes found. Add some recipes first!</p>
+                  ) : (
+                    filteredRecipes.map((r) => (
+                      <div
+                        key={r.id}
+                        onClick={() => {
+                          setPickedRecipe(r);
+                          setSelectedSlots([{ day: picker.day, slot: picker.slot }]);
+                        }}
+                        style={{
+                          display: "flex", alignItems: "center", gap: 10,
+                          padding: "10px 12px", borderRadius: 10, cursor: "pointer",
+                          border: "1px solid #EDE5DA", marginBottom: 6, transition: "background 0.1s",
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.background = "#F8F0E4"}
+                        onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                      >
+                        <span style={{ fontSize: 24 }}>{r.image || "\ud83c\udf7d\ufe0f"}</span>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 14, fontWeight: 600 }}>{r.title}</div>
+                          <div style={{ fontSize: 12, color: "#A08060" }}>{r.category} {r.cookTime ? `\u00b7 ${r.cookTime}` : ""}</div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+                <button onClick={() => { setPicker(null); setPickedRecipe(null); setSelectedSlots([]); }} style={{ ...styles.filterChip, marginTop: 12, alignSelf: "center" }}>Cancel</button>
+              </>
+            ) : (
+              <>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+                  <span style={{ fontSize: 28 }}>{pickedRecipe.image || "\ud83c\udf7d\ufe0f"}</span>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>{pickedRecipe.title}</h3>
+                    <p style={{ margin: "2px 0 0", fontSize: 13, color: "#A08060" }}>Select which slots to add this to</p>
                   </div>
-                ))
-              )}
-            </div>
-            <button onClick={() => setPicker(null)} style={{ ...styles.filterChip, marginTop: 12, alignSelf: "center" }}>Cancel</button>
+                </div>
+
+                <div style={{ overflow: "auto", flex: 1, marginTop: 12 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 6 }}>
+                    {DAYS.map((day, di) => {
+                      const date = weekDates[di];
+                      return (
+                        <div key={day} style={{ textAlign: "center" }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: "#A08060", marginBottom: 6 }}>{day.slice(0, 3)}</div>
+                          {MEAL_SLOTS.map((slot) => {
+                            const taken = isSlotTaken(day, slot);
+                            const selected = isSlotSelected(day, slot);
+                            return (
+                              <div
+                                key={slot}
+                                onClick={() => !taken && toggleSlotSelection(day, slot)}
+                                style={{
+                                  padding: "6px 2px",
+                                  marginBottom: 4,
+                                  borderRadius: 8,
+                                  fontSize: 10,
+                                  fontWeight: 600,
+                                  cursor: taken ? "default" : "pointer",
+                                  background: selected ? "#C75B2A" : taken ? "#F0E6D8" : "#FFFDF8",
+                                  color: selected ? "#fff" : taken ? "#C0A888" : "#6B5744",
+                                  border: selected ? "2px solid #C75B2A" : "2px solid #EDE5DA",
+                                  opacity: taken ? 0.5 : 1,
+                                  transition: "all 0.1s",
+                                  textTransform: "uppercase",
+                                  letterSpacing: "0.3px",
+                                }}
+                              >
+                                {taken ? "\u2713" : slot.slice(0, 3)}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", gap: 8, justifyContent: "space-between", marginTop: 16, alignItems: "center" }}>
+                  <button
+                    onClick={() => { setPickedRecipe(null); setSelectedSlots([]); }}
+                    style={{ ...styles.filterChip }}
+                  >{"\u2190"} Back</button>
+                  <span style={{ fontSize: 13, color: "#A08060" }}>{selectedSlots.length} slot{selectedSlots.length !== 1 ? "s" : ""} selected</span>
+                  <button
+                    onClick={() => assignMultiple(pickedRecipe, selectedSlots)}
+                    disabled={selectedSlots.length === 0}
+                    style={{
+                      ...styles.saveBtn,
+                      marginTop: 0, padding: "10px 20px", fontSize: 14,
+                      opacity: selectedSlots.length === 0 ? 0.5 : 1,
+                    }}
+                  >
+                    Add to {selectedSlots.length} slot{selectedSlots.length !== 1 ? "s" : ""}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
