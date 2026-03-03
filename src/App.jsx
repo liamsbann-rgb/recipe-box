@@ -508,6 +508,10 @@ function MealPlanner({ recipes, mealPlan, saveMealPlan, checkedGrocery, saveChec
   const [searchTerm, setSearchTerm] = useState("");
   const [pickerCategory, setPickerCategory] = useState("All");
   const [checkedItems, setCheckedItems] = useState({});
+  const [itemPrices, setItemPrices] = useState({});
+  const [pricesLoading, setPricesLoading] = useState(false);
+  const [pricesError, setPricesError] = useState("");
+  const [pricesFetched, setPricesFetched] = useState(false);
 
   const weekKey = getWeekKey(weekOffset);
   const weekDates = getWeekDates(weekOffset);
@@ -676,6 +680,46 @@ function MealPlanner({ recipes, mealPlan, saveMealPlan, checkedGrocery, saveChec
 
   const assignedCount = DAYS.reduce((acc, day) => acc + MEAL_SLOTS.reduce((a, slot) => a + (plan[day]?.[slot] ? 1 : 0), 0), 0);
 
+  const fetchPrices = async () => {
+    if (groceryItems.length === 0) return;
+    setPricesLoading(true);
+    setPricesError("");
+    setItemPrices({});
+    setPricesFetched(false);
+    try {
+      const itemList = groceryItems.map((item, i) => `${i}: ${item.text}`).join("\n");
+      const prompt = `You are a grocery price estimator. For each item below, search the web for current typical US grocery store prices (check sites like Instacart, Kroger, Walmart Grocery, or similar). Return ONLY a JSON object where keys are the item index numbers and values are estimated price in USD as a number (e.g. {"0": 2.49, "1": 1.99}). Use realistic current prices. If you cannot determine a price for an item, use null.
+
+Items:
+${itemList}`;
+
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 1000,
+          tools: [{ type: "web_search_20250305", name: "web_search" }],
+          messages: [{ role: "user", content: prompt }],
+          system: "You are a grocery price assistant. Always respond with only a valid JSON object mapping item indices to prices. No markdown, no explanation — just the JSON."
+        })
+      });
+      const data = await response.json();
+      // Find the last text block (after tool use)
+      const textBlocks = (data.content || []).filter(b => b.type === "text");
+      const raw = textBlocks[textBlocks.length - 1]?.text || "";
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error("Could not parse prices.");
+      const parsed = JSON.parse(jsonMatch[0]);
+      setItemPrices(parsed);
+      setPricesFetched(true);
+    } catch (e) {
+      console.error("Price fetch error:", e);
+      setPricesError("Couldn't fetch prices. Try again.");
+    }
+    setPricesLoading(false);
+  };
+
   return (
     <div style={{ maxWidth: 1100, margin: "0 auto" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
@@ -783,24 +827,74 @@ function MealPlanner({ recipes, mealPlan, saveMealPlan, checkedGrocery, saveChec
 
       {/* Grocery List */}
       <div style={{ background: "#FFFDF8", borderRadius: 16, border: "2px solid #EDE5DA", padding: 24 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-          <h3 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>{"\ud83d\uded2"} Grocery List</h3>
-          {groceryItems.length > 0 && <span style={{ fontSize: 13, color: "#A08060" }}>{Object.values(checkedForWeek).filter(Boolean).length} / {groceryItems.length} items</span>}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
+          <div>
+            <h3 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>{"\ud83d\uded2"} Grocery List</h3>
+            {groceryItems.length > 0 && <span style={{ fontSize: 13, color: "#A08060" }}>{Object.values(checkedForWeek).filter(Boolean).length} / {groceryItems.length} items</span>}
+          </div>
+          {groceryItems.length > 0 && (
+            <button
+              onClick={fetchPrices}
+              disabled={pricesLoading}
+              style={{ background: pricesLoading ? "#D4C8BA" : "#3D2E1F", color: "#FDF6EC", border: "none", borderRadius: 10, padding: "9px 18px", fontSize: 13, fontWeight: 600, cursor: pricesLoading ? "wait" : "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: 6, transition: "opacity 0.15s" }}
+            >
+              {pricesLoading ? (
+                <><span style={{ display: "inline-block", width: 12, height: 12, border: "2px solid #FDF6EC", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.7s linear infinite" }} /> Searching prices…</>
+              ) : (
+                <>{"\ud83d\udcb0"} {pricesFetched ? "Refresh Prices" : "Get Prices"}</>
+              )}
+            </button>
+          )}
         </div>
+
+        {pricesError && <p style={{ color: "#C75B2A", fontSize: 13, margin: "0 0 12px" }}>{pricesError}</p>}
+
         {groceryItems.length === 0 ? (
           <p style={{ color: "#A08060", fontSize: 14, margin: 0 }}>Assign meals to the calendar above and your grocery list will auto-populate here.</p>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            {groceryItems.map((item, i) => (
-              <div key={i} onClick={() => toggleCheck(i)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderRadius: 8, cursor: "pointer", background: checkedForWeek[i] ? "#F0E6D8" : "transparent", transition: "background 0.1s" }}>
-                <span style={{ width: 20, height: 20, borderRadius: 6, border: checkedForWeek[i] ? "2px solid #C75B2A" : "2px solid #D4C8BA", background: checkedForWeek[i] ? "#C75B2A" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{checkedForWeek[i] ? "\u2713" : ""}</span>
-                <span style={{ flex: 1, fontSize: 15, textDecoration: checkedForWeek[i] ? "line-through" : "none", color: checkedForWeek[i] ? "#A08060" : "#3D2E1F" }}>{item.text}</span>
-                <span style={{ fontSize: 11, color: "#C0A888", flexShrink: 0 }}>{item.from}</span>
-              </div>
-            ))}
-          </div>
+          <>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {groceryItems.map((item, i) => {
+                const price = itemPrices[String(i)];
+                return (
+                  <div key={i} onClick={() => toggleCheck(i)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderRadius: 8, cursor: "pointer", background: checkedForWeek[i] ? "#F0E6D8" : "transparent", transition: "background 0.1s" }}>
+                    <span style={{ width: 20, height: 20, borderRadius: 6, border: checkedForWeek[i] ? "2px solid #C75B2A" : "2px solid #D4C8BA", background: checkedForWeek[i] ? "#C75B2A" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{checkedForWeek[i] ? "\u2713" : ""}</span>
+                    <span style={{ flex: 1, fontSize: 15, textDecoration: checkedForWeek[i] ? "line-through" : "none", color: checkedForWeek[i] ? "#A08060" : "#3D2E1F" }}>{item.text}</span>
+                    <span style={{ fontSize: 11, color: "#C0A888", flexShrink: 0, marginRight: 4 }}>{item.from}</span>
+                    {pricesFetched && (
+                      <span style={{ fontSize: 13, fontWeight: 700, color: price != null ? "#3D7A3D" : "#C0A888", background: price != null ? "#EAF5EA" : "#F5F0EB", borderRadius: 6, padding: "2px 8px", flexShrink: 0, minWidth: 48, textAlign: "right" }}>
+                        {price != null ? `$${Number(price).toFixed(2)}` : "—"}
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {pricesFetched && (() => {
+              const total = groceryItems.reduce((sum, _, i) => {
+                const p = itemPrices[String(i)];
+                return sum + (p != null ? Number(p) : 0);
+              }, 0);
+              const priced = groceryItems.filter((_, i) => itemPrices[String(i)] != null).length;
+              return (
+                <div style={{ marginTop: 16, paddingTop: 14, borderTop: "2px solid #EDE5DA", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ fontSize: 13, color: "#A08060" }}>Estimated total ({priced}/{groceryItems.length} items priced)</span>
+                  <span style={{ fontSize: 20, fontWeight: 800, color: "#3D2E1F" }}>${total.toFixed(2)}</span>
+                </div>
+              );
+            })()}
+
+            {pricesFetched && (
+              <p style={{ fontSize: 11, color: "#C0A888", margin: "8px 0 0", lineHeight: 1.5 }}>
+                💡 Prices sourced live via web search. Actual costs may vary by store and region.
+              </p>
+            )}
+          </>
         )}
       </div>
+
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }
