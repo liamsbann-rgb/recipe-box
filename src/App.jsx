@@ -687,31 +687,15 @@ function MealPlanner({ recipes, mealPlan, saveMealPlan, checkedGrocery, saveChec
     setItemPrices({});
     setPricesFetched(false);
     try {
-      const itemList = groceryItems.map((item, i) => `${i}: ${item.text}`).join("\n");
-      const prompt = `You are a grocery price estimator. For each item below, search the web for current typical US grocery store prices (check sites like Instacart, Kroger, Walmart Grocery, or similar). Return ONLY a JSON object where keys are the item index numbers and values are estimated price in USD as a number (e.g. {"0": 2.49, "1": 1.99}). Use realistic current prices. If you cannot determine a price for an item, use null.
-
-Items:
-${itemList}`;
-
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
+      const response = await fetch("/api/get-prices", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 1000,
-          tools: [{ type: "web_search_20250305", name: "web_search" }],
-          messages: [{ role: "user", content: prompt }],
-          system: "You are a grocery price assistant. Always respond with only a valid JSON object mapping item indices to prices. No markdown, no explanation — just the JSON."
-        })
+        body: JSON.stringify({ items: groceryItems.map((item) => item.text) }),
       });
+      if (!response.ok) throw new Error(`Server error: ${response.status}`);
       const data = await response.json();
-      // Find the last text block (after tool use)
-      const textBlocks = (data.content || []).filter(b => b.type === "text");
-      const raw = textBlocks[textBlocks.length - 1]?.text || "";
-      const jsonMatch = raw.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) throw new Error("Could not parse prices.");
-      const parsed = JSON.parse(jsonMatch[0]);
-      setItemPrices(parsed);
+      if (!data.prices) throw new Error("No prices returned.");
+      setItemPrices(data.prices);
       setPricesFetched(true);
     } catch (e) {
       console.error("Price fetch error:", e);
